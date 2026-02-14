@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Staff & Vehicle - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+<div class="container">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">Smart Waste ERP</div>
+
+    <div class="nav">
+      <a href="dashboard.html">🏠 Dashboard</a>
+
+      <!-- ADMIN -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- WORKFLOW -->
+      <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
+
+      <a href="collection.html">🗑️ Collection</a>
+      <a href="bins.html">🧺 Bin Status</a>
+      <a href="recycling.html">♻️ Recycling</a>
+
+      <!-- MANAGEMENT -->
+      <a class="active" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a href="report.html">📊 Reports</a>
+    </div>
+
+    <button type="button" class="btn red" onclick="logout()">Logout</button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1 id="pageTitle">Staff & Vehicle Activity</h1>
+        <p class="sub" id="pageSub">Log trips, assign routes, and track completion status.</p>
+      </div>
+
+      <div class="topbar-right">
+        <div class="profile-menu">
+          <img
+            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+            id="profileBtn"
+            class="profile-icon"
+            alt="Profile"
+          />
+          <div id="profileDropdown" class="profile-dropdown">
+            <a href="profile.html">👤 My Profile</a>
+            <a href="#" onclick="logout()">🚪 Logout</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form -->
+    <div class="card">
+      <h2 style="margin-top:0;">New Trip / Shift Log</h2>
+
+      <div class="form">
+        <div>
+          <div class="label">Date</div>
+          <input type="date" id="vdate">
+        </div>
+
+        <div>
+          <div class="label">Vehicle ID</div>
+          <input id="vehicleId" placeholder="Eg: TN-37-WM-1023">
+        </div>
+
+        <div>
+          <div class="label">Staff Name</div>
+          <input id="staffName" placeholder="Eg: Ravi Kumar">
+        </div>
+
+        <div>
+          <div class="label">Assigned Area / Route</div>
+          <input id="route" placeholder="Eg: Peelamedu Route-2">
+        </div>
+
+        <div>
+          <div class="label">Shift</div>
+          <select id="shift">
+            <option>Morning</option>
+            <option>Afternoon</option>
+            <option>Night</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="label">Status</div>
+          <select id="tripStatus">
+            <option>Assigned</option>
+            <option>Started</option>
+            <option>Completed</option>
+          </select>
+        </div>
+
+        <div class="full">
+          <button type="button" class="btn" onclick="saveTrip()">Save Log</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="card" style="margin-top:14px;">
+
+      <!-- ✅ Simple header row (NO nested topbar) -->
+      <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <h2 style="margin:0;">Activity Logs</h2>
+        <input id="searchTrips" placeholder="Search vehicle/staff/route/status..." oninput="renderTrips()">
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Vehicle</th>
+            <th>Staff</th>
+            <th>Route</th>
+            <th>Shift</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tripsBody"></tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app.js"></script>
+
+<script type="module">
+  protectPage(["admin"]);  // change if needed
+  applyRoleMenu();
+  initProfileMenu();
+  renderTrips();
+</script>
+
+<script>
+  initProfileMenu();
+</script>
+
+</body>
+</html>

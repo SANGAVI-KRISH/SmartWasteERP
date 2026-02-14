@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Register - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="auth-body">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="logo">🧾</div>
+        <div>
+          <h1>Create Account</h1>
+          <p class="muted">Choose role • Use email/password • Start using ERP</p>
+        </div>
+      </div>
+
+      <!-- ✅ FORM ADDED -->
+      <form id="registerForm" class="auth-grid">
+
+        <label class="field">
+          <span>Role</span>
+          <select id="role" required>
+            <option value="worker">Worker</option>
+            <option value="driver">Driver</option>
+            <option value="recycling_manager">Recycling Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Area</span>
+          <input id="area" placeholder="Eg: Peelamedu" required>
+        </label>
+
+        <label class="field">
+          <span>Email</span>
+          <input type="email" id="email" placeholder="example@domain.com" autocomplete="email" required>
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="password" placeholder="Create password" autocomplete="new-password" required>
+        </label>
+
+        <label class="field">
+          <span>Confirm Password</span>
+          <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password" required>
+        </label>
+
+        <!-- submit button (no onclick) -->
+        <button type="submit" class="btn primary">Create Account</button>
+
+        <p class="muted" style="margin:0;">
+          Already registered? <a href="index.html" style="color:#9cc2ff;">Back to Login</a>
+        </p>
+
+        <p id="msg" class="error"></p>
+      </form>
+
+      <div class="auth-footer muted">© Smart Waste ERP</div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+
+  <!-- ✅ Enter key + submit handling -->
+  <script type="module">
+    const form = document.getElementById("registerForm");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await signUp();   // calls window.signUp in app.js
+    });
+  </script>
+
+</body>
+</html>

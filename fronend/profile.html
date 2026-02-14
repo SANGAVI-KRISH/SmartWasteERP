@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My Profile - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="container">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="brand">Smart Waste ERP</div>
+
+      <div class="nav">
+        <a href="dashboard.html">🏠 Dashboard</a>
+
+        <!-- ADMIN -->
+        <a class="nav-admin" href="users.html">👥 Users</a>
+
+        <!-- WORKFLOW -->
+        <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
+
+        <a href="collection.html">🗑️ Collection</a>
+        <a href="bins.html">🧺 Bin Status</a>
+        <a href="recycling.html">♻️ Recycling</a>
+        <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+        <a href="report.html">📊 Reports</a>
+      </div>
+
+      <button type="button" class="btn red" onclick="logout()">Logout</button>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <!-- TOPBAR -->
+      <div class="topbar">
+        <div class="topbar-left">
+          <h1>My Profile</h1>
+          <p class="sub">View your details & change password</p>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-menu">
+            <img src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+                 id="profileBtn"
+                 class="profile-icon"
+                 alt="Profile">
+
+            <div id="profileDropdown" class="profile-dropdown">
+              <a href="profile.html">👤 My Profile</a>
+              <a href="#" onclick="logout()">🚪 Logout</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROFILE CARD -->
+      <div class="card">
+        <h2>Account Details</h2>
+
+        <div class="form" style="margin-top:12px;">
+          <div class="full">
+            <label class="field">
+              <span>Email</span>
+              <input id="profileEmail" disabled />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Role</span>
+            <input id="profileRole" disabled />
+          </label>
+
+          <label class="field">
+            <span>Area</span>
+            <input id="profileArea" disabled />
+          </label>
+        </div>
+      </div>
+
+      <!-- CHANGE PASSWORD -->
+      <div class="card" style="margin-top:14px;">
+        <h2>Change Password</h2>
+        <p class="sub">Enter a new password and update</p>
+
+        <div class="form">
+          <label class="field full">
+            <span>New Password</span>
+            <input type="password" id="newPassword" placeholder="Enter new password" />
+          </label>
+
+          <label class="field full">
+            <span>Confirm New Password</span>
+            <input type="password" id="confirmNewPassword" placeholder="Re-enter new password" />
+          </label>
+
+          <div class="full" style="display:flex; gap:10px; align-items:center;">
+            <button class="btn primary" type="button" onclick="changePassword()">Update Password</button>
+            <span id="msg" class="error"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+  <script type="module">
+    // Make sure only logged-in users can view
+    protectPage(["admin","worker","driver","recycling_manager"]);
+    applyRoleMenu();
+
+    // Profile dropdown
+    initProfileMenu();
+
+    // Load profile details
+    loadProfile();
+  </script>
+
+  <script>
+  initProfileMenu();
+</script>
+
+</body>
+</html>

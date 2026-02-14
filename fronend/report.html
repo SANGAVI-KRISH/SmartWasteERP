@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reports - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+<div class="container">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">Smart Waste ERP</div>
+
+    <div class="nav">
+      <a href="dashboard.html">🏠 Dashboard</a>
+
+      <!-- ADMIN -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- WORKFLOW -->
+      <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
+
+      <a href="collection.html">🗑️ Collection</a>
+      <a href="bins.html">🧺 Bin Status</a>
+      <a href="recycling.html">♻️ Recycling</a>
+
+      <!-- MANAGEMENT -->
+      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a class="active" href="report.html">📊 Reports</a>
+    </div>
+
+    <button type="button" class="btn red" onclick="logout()">Logout</button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ✅ STANDARD TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1 id="pageTitle">Reports</h1>
+        <p class="sub" id="pageSub">Auto-generated summary from Collection, Bin and Recycling data.</p>
+      </div>
+
+      <div class="topbar-right" style="display:flex; align-items:center; gap:12px;">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn" onclick="generateReport()">Refresh</button>
+          <button type="button" class="btn" onclick="exportReportCSV()">Export CSV</button>
+        </div>
+
+        <div class="profile-menu">
+          <img
+            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+            id="profileBtn"
+            class="profile-icon"
+            alt="Profile"
+          />
+          <div id="profileDropdown" class="profile-dropdown">
+            <a href="profile.html">👤 My Profile</a>
+            <a href="#" onclick="logout()">🚪 Logout</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid">
+      <div class="card">
+        <div class="label">Total Collected</div>
+        <div class="value" id="kpiTotalCollected">0 kg</div>
+      </div>
+      <div class="card">
+        <div class="label">Total Recycled</div>
+        <div class="value" id="kpiTotalRecycled">0 kg</div>
+      </div>
+      <div class="card">
+        <div class="label">Sent to Landfill</div>
+        <div class="value" id="kpiTotalLandfill">0 kg</div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:14px;">
+      <div class="card">
+        <div class="label">Full Bins (Priority)</div>
+        <div class="value" id="kpiFullBins">0</div>
+      </div>
+      <div class="card">
+        <div class="label">Collection Records</div>
+        <div class="value" id="kpiCollectionCount">0</div>
+      </div>
+      <div class="card">
+        <div class="label">Recycling Records</div>
+        <div class="value" id="kpiRecyclingCount">0</div>
+      </div>
+    </div>
+
+    <!-- Breakdown + Chart -->
+    <div class="card" style="margin-top:14px;">
+
+      <!-- ✅ Simple header row (NO nested topbar) -->
+      <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:10px;">
+        <div>
+          <h2 style="margin:0;">Collected Waste by Type</h2>
+          <p class="sub" style="margin:6px 0 0;">(Wet / Dry / Plastic)</p>
+        </div>
+      </div>
+
+      <!-- Simple bar chart -->
+      <div id="barChart" style="display:grid; gap:10px;"></div>
+
+      <div style="height:12px;"></div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Waste Type</th>
+            <th>Total Collected (kg)</th>
+          </tr>
+        </thead>
+        <tbody id="typeBreakdownBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Operational Insight -->
+    <div class="card" style="margin-top:14px;">
+      <h2 style="margin-top:0;">Operational Insight</h2>
+      <p class="sub" id="insightText" style="margin-bottom:0;">
+        Click Refresh to generate insights.
+      </p>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app.js"></script>
+
+<script type="module">
+  protectPage(["admin","worker"]);
+  applyRoleMenu();
+  initProfileMenu();
+  generateReport();
+</script>
+
+<script>
+  initProfileMenu();
+</script>
+
+</body>
+</html>

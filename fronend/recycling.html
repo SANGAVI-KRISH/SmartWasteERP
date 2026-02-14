@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recycling - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+<div class="container">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">Smart Waste ERP</div>
+
+    <div class="nav">
+      <a href="dashboard.html">🏠 Dashboard</a>
+
+      <!-- ADMIN -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- WORKFLOW -->
+      <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
+
+      <a href="collection.html">🗑️ Collection</a>
+      <a href="bins.html">🧺 Bin Status</a>
+      <a class="active" href="recycling.html">♻️ Recycling</a>
+
+      <!-- MANAGEMENT -->
+      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a href="report.html">📊 Reports</a>
+    </div>
+
+    <button type="button" class="btn red" onclick="logout()">Logout</button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1 id="pageTitle">Recycling Management</h1>
+        <p class="sub" id="pageSub">Record how much waste was recycled vs sent to landfill.</p>
+      </div>
+
+      <div class="topbar-right">
+        <div class="profile-menu">
+          <img
+            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+            id="profileBtn"
+            class="profile-icon"
+            alt="Profile"
+          />
+          <div id="profileDropdown" class="profile-dropdown">
+            <a href="profile.html">👤 My Profile</a>
+            <a href="#" onclick="logout()">🚪 Logout</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form Card -->
+    <div class="card">
+      <h2 style="margin-top:0;">New Recycling Entry</h2>
+
+      <div class="form">
+        <div>
+          <div class="label">Date</div>
+          <input type="date" id="rdate">
+        </div>
+
+        <div>
+          <div class="label">Waste Type</div>
+          <select id="rtype">
+            <option>Wet</option>
+            <option>Dry</option>
+            <option>Plastic</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="label">Input (kg)</div>
+          <input type="number" id="input" placeholder="Eg: 100">
+        </div>
+
+        <div>
+          <div class="label">Recycled (kg)</div>
+          <input type="number" id="recycled" placeholder="Eg: 70">
+        </div>
+
+        <div>
+          <div class="label">Sent to Landfill (kg)</div>
+          <input type="number" id="landfill" placeholder="Eg: 30">
+        </div>
+
+        <div class="full">
+          <button type="button" class="btn" onclick="saveRecycle()">Save Entry</button>
+        </div>
+      </div>
+
+      <p class="sub" style="margin-top:10px;">
+        Validation: Recycled + Landfill should not exceed Input.
+      </p>
+    </div>
+
+    <!-- Table Card -->
+    <div class="card" style="margin-top:14px;">
+
+      <!-- ✅ Simple header row (NO nested topbar) -->
+      <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <h2 style="margin:0;">Recycling Records</h2>
+        <input id="searchRecycling" placeholder="Search type/date..." oninput="renderRecycling()">
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Input</th>
+            <th>Recycled</th>
+            <th>Landfill</th>
+          </tr>
+        </thead>
+        <tbody id="recyclingBody"></tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app.js"></script>
+
+<script type="module">
+  protectPage(["admin"]);     // admin only (change if needed)
+  applyRoleMenu();
+  initProfileMenu();
+  renderRecycling();
+  document.getElementById("rdate")?.focus();
+</script>
+
+<script>
+  initProfileMenu();
+</script>
+
+
+</body>
+</html>

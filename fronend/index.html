@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="auth-body">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="logo">♻️</div>
+        <div>
+          <h1>Smart Waste Collection and Recycling ERP</h1>
+          <p class="muted">Municipal Operations • Collection • Recycling • Reports</p>
+        </div>
+      </div>
+
+      <!-- ✅ FORM ADDED: Press Enter works -->
+      <form id="loginForm" class="auth-grid">
+
+        <label class="field">
+          <span>Email</span>
+          <input type="email" id="email" placeholder="example@domain.com" autocomplete="email" required>
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" required>
+        </label>
+
+        <!-- ✅ submit button (no onclick) -->
+        <button type="submit" class="btn primary">Login</button>
+
+        <p class="muted" style="margin:0;">
+          New user? <a href="register.html" style="color:#9cc2ff;">Create an account</a>
+        </p>
+
+        <p id="msg" class="error"></p>
+      </form>
+
+      <div class="auth-footer muted">© Smart Waste ERP</div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+
+  <!-- ✅ Handles Enter key + submit -->
+  <script type="module">
+    const form = document.getElementById("loginForm");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await signIn();   // calls window.signIn from app.js
+    });
+  </script>
+
+</body>
+</html>

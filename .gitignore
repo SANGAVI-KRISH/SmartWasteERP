@@ -1,0 +1,11 @@
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+
+# Logs
+*.log
+
+# Never upload env files anywhere
+.env

@@ -1,0 +1,418 @@
+:root{
+  --bg:#0b1220;
+  --card:#111a2e;
+  --muted:#9aa4b2;
+  --text:#e7eefc;
+  --accent:#3b82f6;
+  --good:#22c55e;
+  --warn:#f59e0b;
+  --bad:#ef4444;
+  --border:rgba(255,255,255,.08);
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  font-family:system-ui,Segoe UI,Arial;
+  background:linear-gradient(180deg,#070b14,#0b1220);
+  color:var(--text);
+}
+
+a{color:inherit; text-decoration:none}
+.container{display:flex; min-height:100vh}
+
+/* ===================== SIDEBAR FIX (NO GAP) ===================== */
+.sidebar{
+  width:260px;
+  padding:18px;
+  border-right:1px solid var(--border);
+  background:rgba(17,26,46,.7);
+  backdrop-filter: blur(8px);
+
+  display:flex;
+  flex-direction:column;
+  height:100vh;
+}
+
+.brand{
+  font-weight:800;
+  letter-spacing:.3px;
+  margin:8px 0 18px;
+  font-size:18px;
+}
+
+.badge{
+  display:inline-block;
+  font-size:12px;
+  padding:4px 10px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  color:var(--muted);
+  margin-top:8px;
+}
+
+/* nav takes space, logout stays bottom */
+.sidebar .nav{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin-top:18px;
+  flex:1;
+}
+
+.sidebar .nav a{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 14px;
+  border-radius:12px;
+  border:1px solid transparent;
+  color:var(--text);
+}
+
+.sidebar .nav a:hover{
+  border-color:var(--border);
+  background:rgba(255,255,255,.04);
+}
+
+.nav a.active{
+  border-color: var(--border);
+  background: rgba(255,255,255,.06);
+}
+
+.sidebar .btn.red{
+  margin-top:auto;
+}
+
+/* ===================== MAIN ===================== */
+.main{
+  flex:1;
+  padding:22px;
+}
+
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:18px;
+}
+
+h1,h2{margin:0 0 10px}
+.sub{color:var(--muted); margin:0 0 18px}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:14px;
+}
+
+@media(max-width:900px){
+  .container{display:block}
+  .sidebar{width:100%; height:auto}
+  .grid{grid-template-columns:1fr}
+}
+
+/* ===================== CARD ===================== */
+.card{
+  background:rgba(17,26,46,.7);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:14px;
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+
+.card .label{color:var(--muted); font-size:12px}
+.card .value{font-size:28px; font-weight:800; margin-top:6px}
+
+/* ===================== FORMS ===================== */
+.form{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;
+}
+.form .full{grid-column:1/-1}
+
+input, select{
+  width:100%;
+  padding:10px 12px;
+  background:rgba(255,255,255,.04);
+  border:1px solid var(--border);
+  border-radius:12px;
+  color:var(--text);
+  outline:none;
+}
+
+input::placeholder{color:rgba(231,238,252,.45)}
+
+input:focus, select:focus{
+  border-color: rgba(59,130,246,.55);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
+}
+
+/* ===================== BUTTONS ===================== */
+.btn{
+  padding:10px 14px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(59,130,246,.15);
+  color:var(--text);
+  cursor:pointer;
+  font-weight:700;
+  letter-spacing:.2px;
+}
+.btn:hover{background:rgba(59,130,246,.25)}
+.btn.primary{background:rgba(59,130,246,.22)}
+.btn.primary:hover{background:rgba(59,130,246,.32)}
+.btn.red{background:rgba(239,68,68,.15)}
+.btn.red:hover{background:rgba(239,68,68,.25)}
+
+/* ===================== TABLE ===================== */
+.table{
+  width:100%;
+  border-collapse:collapse;
+  overflow:hidden;
+  border-radius:14px;
+}
+
+.table th,.table td{
+  text-align:left;
+  padding:10px 12px;
+  border-bottom:1px solid var(--border);
+}
+
+.table th{
+  color:var(--muted);
+  font-weight:600;
+  font-size:12px;
+  text-transform:uppercase;
+}
+
+.table tr:hover td{background:rgba(255,255,255,.03)}
+.row-actions{display:flex; gap:8px}
+
+/* ===================== PILLS ===================== */
+.pill{
+  display:inline-block;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+  border:1px solid var(--border);
+}
+.pill.good{color:var(--good)}
+.pill.warn{color:var(--warn)}
+.pill.bad{color:var(--bad)}
+
+/* ===================== TOAST ===================== */
+.toast{
+  position:fixed;
+  right:18px; bottom:18px;
+  background:rgba(17,26,46,.9);
+  border:1px solid var(--border);
+  padding:12px 14px;
+  border-radius:14px;
+  box-shadow:0 12px 40px rgba(0,0,0,.35);
+  display:none;
+}
+
+/* ===================== AUTH (LOGIN/REGISTER) ===================== */
+.auth-body{
+  margin:0;
+  min-height:100vh;
+  font-family: system-ui, -apple-system, Segoe UI, Arial;
+  background: radial-gradient(900px 500px at 15% 10%, rgba(59,130,246,.25), transparent 60%),
+              radial-gradient(900px 500px at 90% 90%, rgba(34,197,94,.20), transparent 55%),
+              linear-gradient(180deg, #050816, #0b1220);
+  color:#e7eefc;
+}
+
+.auth-wrap{
+  min-height:100vh;
+  display:grid;
+  place-items:center;
+  padding:24px;
+}
+
+.auth-card{
+  width:min(520px, 92vw);
+  background: rgba(17,26,46,.75);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.45);
+  backdrop-filter: blur(10px);
+  padding:18px;
+}
+
+.auth-header{
+  display:flex;
+  gap:12px;
+  align-items:center;
+  padding:6px 6px 14px 6px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  margin-bottom:14px;
+}
+
+.auth-header h1{
+  font-size:20px;
+  margin:0;
+  letter-spacing:.2px;
+}
+
+.muted{ color: rgba(231,238,252,.65); margin:4px 0 0; font-size:13px; }
+
+.logo{
+  width:44px; height:44px;
+  display:grid; place-items:center;
+  border-radius:14px;
+  background: rgba(59,130,246,.18);
+  border:1px solid rgba(255,255,255,.10);
+  font-size:20px;
+}
+
+.auth-grid{
+  display:grid;
+  gap:12px;
+}
+
+.field span{
+  display:block;
+  font-size:12px;
+  color: rgba(231,238,252,.70);
+  margin: 0 0 6px 2px;
+}
+
+.field input{
+  width:100%;
+  padding:11px 12px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color:#e7eefc;
+  outline:none;
+}
+
+.field input:focus{
+  border-color: rgba(59,130,246,.55);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.18);
+}
+
+.hint{
+  border:1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+  border-radius:14px;
+  padding:10px 12px;
+  font-size:13px;
+}
+
+.hint code{
+  background: rgba(255,255,255,.06);
+  padding:2px 6px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,.08);
+}
+
+.error{
+  color: #ff8a8a;
+  margin: 2px 2px 0;
+  min-height: 18px;
+  font-size: 13px;
+}
+
+.auth-footer{
+  text-align:center;
+  padding-top:12px;
+  margin-top:14px;
+  border-top:1px solid rgba(255,255,255,.08);
+  font-size:12px;
+}
+
+/* ===================== DROPDOWN THEME (FIXED) ===================== */
+select{
+  width:100%;
+  padding:12px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,0.12);
+  background:#1c2333;
+  color:#e6ecff;
+  font-size:15px;
+  outline:none;
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+}
+
+select option{
+  background:#0f1624;
+  color:#e6ecff;
+}
+
+/* custom arrow ONLY on select-field */
+.field.select-field{ position:relative; }
+.field.select-field::after{
+  content:"▼";
+  font-size:12px;
+  color:#9cc2ff;
+  position:absolute;
+  right:14px;
+  top:40px;
+  pointer-events:none;
+}
+
+/* ===================== PROFILE DROPDOWN ===================== */
+.profile-menu{ position:relative; }
+
+.profile-icon{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  cursor:pointer;
+}
+
+.profile-dropdown{
+  display:none;
+  position:absolute;
+  right:0;
+  top:45px;
+  background:#1c2333;
+  border-radius:10px;
+  padding:10px;
+  box-shadow:0 0 10px rgba(0,0,0,0.4);
+  border:1px solid rgba(255,255,255,.10);
+  min-width:160px;
+}
+
+.profile-dropdown a{
+  display:block;
+  padding:8px 12px;
+  cursor:pointer;
+  border-radius:8px;
+}
+
+.profile-dropdown a:hover{ background:#2d3854; }
+
+/* ===================== MODAL ===================== */
+.modal{
+  display:none;
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:rgba(0,0,0,0.6);
+}
+
+.modal-content{
+  background:#1c2333;
+  width:350px;
+  margin:8% auto;
+  padding:20px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.10);
+}
+
+.modal-content input{
+  width:100%;
+  margin:6px 0 14px 0;
+  padding:8px;
+}

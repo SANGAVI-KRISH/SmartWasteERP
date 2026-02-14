@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Complaints - Smart Waste ERP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+<div class="container">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">Smart Waste ERP</div>
+
+    <div class="nav">
+      <a href="dashboard.html">🏠 Dashboard</a>
+
+      <!-- ADMIN -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- WORKFLOW -->
+      <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
+
+      <a href="collection.html">🗑️ Collection</a>
+      <a href="bins.html">🧺 Bin Status</a>
+      <a href="recycling.html">♻️ Recycling</a>
+
+      <!-- MANAGEMENT -->
+      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a href="report.html">📊 Reports</a>
+
+      <!-- OPTIONAL (if you want in nav) -->
+      <!-- <a class="active" href="complaint.html">📝 Complaints</a> -->
+    </div>
+
+    <button type="button" class="btn red" onclick="logout()">Logout</button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1 id="pageTitle">Citizen Complaints</h1>
+        <p class="sub" id="pageSub">Register complaints and track resolution status.</p>
+      </div>
+
+      <div class="topbar-right">
+        <div class="profile-menu">
+          <img
+            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+            id="profileBtn"
+            class="profile-icon"
+            alt="Profile"
+          />
+          <div id="profileDropdown" class="profile-dropdown">
+            <a href="profile.html">👤 My Profile</a>
+            <a href="#" onclick="logout()">🚪 Logout</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- New Complaint -->
+    <div class="card">
+      <h2 style="margin-top:0;">New Complaint</h2>
+
+      <div class="form">
+        <div>
+          <div class="label">Citizen Name</div>
+          <input id="cname" placeholder="Eg: Priya">
+        </div>
+
+        <div>
+          <div class="label">Area</div>
+          <input id="carea" placeholder="Eg: Peelamedu">
+        </div>
+
+        <div class="full">
+          <div class="label">Issue / Complaint</div>
+          <input id="cissue" placeholder="Eg: Missed pickup for 2 days / Overflowing bin">
+        </div>
+
+        <div>
+          <div class="label">Priority</div>
+          <select id="cpriority">
+            <option>Low</option>
+            <option>Medium</option>
+            <option>High</option>
+          </select>
+        </div>
+
+        <div class="full">
+          <button type="button" class="btn" onclick="saveComplaint()">Submit Complaint</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Complaint List -->
+    <div class="card" style="margin-top:14px;">
+      <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <h2 style="margin:0;">Complaint List</h2>
+        <input id="searchComplaints" placeholder="Search area/issue/status..." oninput="renderComplaints()">
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>Name</th>
+            <th>Area</th>
+            <th>Issue</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="complaintsBody"></tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app.js"></script>
+
+<script type="module">
+  protectPage(["admin","worker"]); // if only admin: ["admin"]
+  applyRoleMenu();
+  initProfileMenu();
+  renderComplaints();
+</script>
+
+<script>
+  initProfileMenu();
+</script>
+
+
+</body>
+</html>
