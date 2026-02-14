@@ -6,9 +6,17 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+/* ---------- IMPORTANT FOR INTERNET ACCESS ---------- */
+app.use(cors({
+  origin: "*",   // allows Netlify frontend to call backend
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}));
+
 app.use(express.json());
 
+/* ---------- SUPABASE CONNECTION ---------- */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -16,7 +24,7 @@ const supabase = createClient(
 
 /* ---------------- HEALTH CHECK ---------------- */
 app.get("/", (req, res) => {
-  res.send("Smart Waste ERP Backend Running");
+  res.send("Smart Waste ERP Backend Running 🚀");
 });
 
 /* ---------------- GET TASKS ---------------- */
@@ -89,7 +97,9 @@ app.post("/tasks/recycle/:taskid", async (req, res) => {
   res.json({ message: "Recycling recorded" });
 });
 
-/* ---------------- START SERVER ---------------- */
-app.listen(5000, () => {
-  console.log("Backend running on port 5000");
+/* ---------------- START SERVER (VERY IMPORTANT) ---------------- */
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
 });
