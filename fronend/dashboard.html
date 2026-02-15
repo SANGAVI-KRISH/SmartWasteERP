@@ -120,9 +120,13 @@
   } catch {}
 </script>
 
-<script>
+<script type="module">
+  protectPage(["admin"]);
+  applyRoleMenu();
   initProfileMenu();
+  renderBins();
 </script>
+
 
 </body>
 </html>
