@@ -7,42 +7,119 @@ dotenv.config();
 
 const app = express();
 
-/* ✅ CORS (ALLOW ONLY YOUR NETLIFY SITE) */
-const ALLOWED_ORIGIN = process.env.FRONTEND_URL || "https://smartwaste-erp.netlify.app";
+/* =========================
+   ✅ CORS (Netlify + Local)
+   ========================= */
+const ALLOWED = [
+  process.env.FRONTEND_URL || "https://smartwaste-erp.netlify.app",
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
+];
 
-app.use(cors({
-  origin: ALLOWED_ORIGIN,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
+app.use(
+  cors({
+    origin: function (origin, cb) {
+      if (!origin) return cb(null, true); // Postman/curl/no-origin
+      if (ALLOWED.includes(origin)) return cb(null, true);
+      return cb(new Error("CORS blocked: " + origin), false);
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.options("*", cors());
 app.use(express.json());
 
-/* ---------- ENV ---------- */
+/* =========================
+   ✅ ENV
+   ========================= */
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) {
-  console.error("❌ Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY in env");
+  console.error(
+    "❌ Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY in env"
+  );
 }
 
-/* ✅ DB client (service role) */
+/* =========================
+   ✅ SUPABASE CLIENTS
+   ========================= */
+// DB/Admin operations (service role)
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-/* ✅ Auth verify client (anon) */
+// Auth verify/login (anon key)
 const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ---------------- HEALTH CHECK ---------------- */
+/* =========================
+   ✅ ROUTES
+   ========================= */
+
+// Health check
 app.get("/", (req, res) => {
   res.send("Smart Waste ERP Backend Running ✅");
 });
 
-/* ---------------- AUTH CHECK ---------------- */
+/* ---------- AUTH: SIGNUP ---------- */
+app.post("/signup", async (req, res) => {
+  try {
+    const { email, password, role = "worker", area = "General" } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "email & password required" });
+    }
+
+    const { data, error } = await supabaseAuth.auth.signUp({ email, password });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // create/ensure profile row
+    if (data?.user?.id) {
+      await supabaseAdmin.from("profiles").upsert({
+        id: data.user.id,
+        email,
+        role,
+        area,
+      });
+    }
+
+    res.json({ ok: true, user: data.user });
+  } catch (e) {
+    res.status(500).json({ error: "Signup failed", details: e.message });
+  }
+});
+
+/* ---------- AUTH: LOGIN ---------- */
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "email & password required" });
+    }
+
+    const { data, error } = await supabaseAuth.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) return res.status(401).json({ error: error.message });
+
+    res.json({
+      ok: true,
+      token: data.session.access_token,
+      user: data.user,
+    });
+  } catch (e) {
+    res.status(500).json({ error: "Login failed", details: e.message });
+  }
+});
+
+/* ---------- AUTH CHECK (/me) ---------- */
 app.get("/me", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
-
   if (!token) return res.status(401).json({ error: "No token" });
 
   try {
@@ -55,11 +132,12 @@ app.get("/me", async (req, res) => {
   }
 });
 
-/* ---------------- GET TASKS (ROLE-AWARE) ---------------- */
+/* ---------- GET TASKS (ROLE-AWARE) ---------- */
 app.get("/tasks/:userid", async (req, res) => {
   const userid = req.params.userid;
 
   try {
+    // profile
     const { data: profile, error: pErr } = await supabaseAdmin
       .from("profiles")
       .select("role, area")
@@ -83,6 +161,7 @@ app.get("/tasks/:userid", async (req, res) => {
     } else if (role === "recycling_manager") {
       query = query.eq("area", area).in("status", ["DELIVERED", "RECYCLED"]);
     } else {
+      // worker/driver: assigned tasks
       query = query.or(`assigned_worker_id.eq.${userid},assigned_driver_id.eq.${userid}`);
     }
 
@@ -95,7 +174,7 @@ app.get("/tasks/:userid", async (req, res) => {
   }
 });
 
-/* ---------------- WORKER COLLECT ---------------- */
+/* ---------- WORKER: COLLECT ---------- */
 app.post("/tasks/collect/:taskid", async (req, res) => {
   const taskid = req.params.taskid;
   const { collected_kg } = req.body || {};
@@ -123,14 +202,17 @@ app.post("/tasks/collect/:taskid", async (req, res) => {
   }
 });
 
-/* ---------------- DRIVER DELIVER ---------------- */
+/* ---------- DRIVER: DELIVER ---------- */
 app.post("/tasks/deliver/:taskid", async (req, res) => {
   const taskid = req.params.taskid;
 
   try {
     const { error } = await supabaseAdmin
       .from("pickup_tasks")
-      .update({ status: "DELIVERED", delivered_at: new Date().toISOString() })
+      .update({
+        status: "DELIVERED",
+        delivered_at: new Date().toISOString(),
+      })
       .eq("id", taskid);
 
     if (error) return res.status(500).json({ message: "Deliver update failed", error });
@@ -141,13 +223,15 @@ app.post("/tasks/deliver/:taskid", async (req, res) => {
   }
 });
 
-/* ---------------- RECYCLING ---------------- */
+/* ---------- RECYCLING MANAGER: RECYCLE ---------- */
 app.post("/tasks/recycle/:taskid", async (req, res) => {
   const taskid = req.params.taskid;
   const { received_kg, recycle_percent } = req.body || {};
 
   if (received_kg === undefined || recycle_percent === undefined) {
-    return res.status(400).json({ message: "received_kg and recycle_percent are required" });
+    return res.status(400).json({
+      message: "received_kg and recycle_percent are required",
+    });
   }
 
   try {
@@ -170,6 +254,8 @@ app.post("/tasks/recycle/:taskid", async (req, res) => {
   }
 });
 
-/* ---------------- START SERVER ---------------- */
+/* =========================
+   ✅ START SERVER (MUST BE LAST)
+   ========================= */
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));

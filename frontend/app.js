@@ -1,233 +1,283 @@
 import { API_URL } from "./config.js";
-
 import { supabase } from "./supabaseClient.js";
 
 /* =========================
    Small Helpers
 ========================= */
-function $(id){ return document.getElementById(id); }
+function $(id) { return document.getElementById(id); }
 
-window.toast = function(msg){
+window.toast = function (msg) {
   const t = $("toast");
-  if(!t){ alert(msg); return; }
+  if (!t) { alert(msg); return; }
   t.textContent = msg;
   t.style.display = "block";
   clearTimeout(window.__toastTimer);
-  window.__toastTimer = setTimeout(()=> t.style.display="none", 1700);
+  window.__toastTimer = setTimeout(() => t.style.display = "none", 1700);
 };
 
 /* =========================
-   AUTH (Supabase)
+   AUTH (Backend Token)
 ========================= */
+
+// SIGNUP  -> backend /signup
 window.signUp = async function () {
-  const role = document.getElementById("role").value;
-  const area = document.getElementById("area").value.trim();
-  const email = document.getElementById("email").value.trim();
-  const password = document.getElementById("password").value;
-  const confirm = document.getElementById("confirmPassword").value;
-  const msg = document.getElementById("msg");
+  const role = $("role")?.value;
+  const area = $("area")?.value?.trim();
+  const email = $("email")?.value?.trim();
+  const password = $("password")?.value;
+  const confirm = $("confirmPassword")?.value;
+  const msg = $("msg");
 
-  if(!role || !area || !email || !password){
-    msg.textContent = "Fill all fields";
+  if (!role || !area || !email || !password) {
+    if (msg) msg.textContent = "Fill all fields";
+    return;
+  }
+  if (password !== confirm) {
+    if (msg) msg.textContent = "Passwords do not match";
     return;
   }
 
-  if(password !== confirm){
-    msg.textContent = "Passwords do not match";
-    return;
-  }
+  if (msg) msg.textContent = "Creating account...";
 
-  msg.textContent = "Creating account...";
-
-  try{
-    const res = await fetch(API_URL + "/register", {
+  try {
+    const res = await fetch(API_URL + "/signup", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, role, area })
     });
 
     const data = await res.json();
 
-    if(!res.ok){
-      msg.textContent = data.error;
+    if (!res.ok) {
+      if (msg) msg.textContent = data.error || "Signup failed";
       return;
     }
 
-    msg.textContent = "Account created! Now login.";
-    setTimeout(()=> window.location="index.html",1500);
+    if (msg) msg.textContent = "Account created ✅ Now login";
+    setTimeout(() => window.location = "index.html", 1500);
 
-  }catch{
-    msg.textContent = "Backend not reachable";
+  } catch (e) {
+    if (msg) msg.textContent = "Backend not reachable (Render sleeping?)";
   }
 };
 
-window.signIn = async function () {
-  const email = document.getElementById("email").value.trim();
-  const password = document.getElementById("password").value;
-  const msg = document.getElementById("msg");
 
-  if(!email || !password){
-    msg.textContent = "Enter email and password";
+// LOGIN -> backend /login
+window.signIn = async function () {
+  const email = $("email")?.value?.trim();
+  const password = $("password")?.value;
+  const msg = $("msg");
+
+  if (!email || !password) {
+    if (msg) msg.textContent = "Enter email and password";
     return;
   }
 
-  msg.textContent = "Connecting to server...";
+  if (msg) msg.textContent = "Connecting to server...";
 
-  try{
+  try {
     const res = await fetch(API_URL + "/login", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
     });
 
     const data = await res.json();
 
-    if(!res.ok){
-      msg.textContent = data.error || "Login failed";
+    if (!res.ok) {
+      if (msg) msg.textContent = data.error || "Login failed";
       return;
     }
 
-    // store session
+    // store session token
     localStorage.setItem("token", data.token);
-    localStorage.setItem("role", data.role);
-    localStorage.setItem("area", data.area);
+    localStorage.setItem("user_id", data.user.id);
+
+    // fetch role+area from profiles table
+    const { data: p, error: perr } = await supabase
+      .from("profiles")
+      .select("role, area")
+      .eq("id", data.user.id)
+      .single();
+
+    if (perr || !p) {
+      if (msg) msg.textContent = "Profile missing. Contact admin.";
+      return;
+    }
+
+    localStorage.setItem("role", p.role);
+    localStorage.setItem("area", p.area);
 
     window.location = "dashboard.html";
 
-  }catch(err){
-    msg.textContent = "Cannot reach server (backend sleeping or CORS)";
+  } catch (err) {
+    if (msg) msg.textContent = "Cannot reach server (Render sleeping or CORS)";
   }
 };
 
 
-window.logout = async function(){
-  try{ await supabase.auth.signOut(); }catch(e){}
+window.logout = async function () {
   localStorage.clear();
   window.location = "index.html";
 };
 
-window.protectPage = async function () {
 
+// PROTECT PAGE (token check via backend /me)
+window.protectPage = async function (allowedRoles = []) {
   const token = localStorage.getItem("token");
-
-  if(!token){
+  if (!token) {
     window.location = "index.html";
     return;
   }
 
-  try{
+  try {
     const res = await fetch(API_URL + "/me", {
-      headers: {
-        Authorization: "Bearer " + token
-      }
+      headers: { Authorization: "Bearer " + token }
     });
 
-    if(!res.ok){
+    if (!res.ok) {
       localStorage.clear();
       window.location = "index.html";
+      return;
     }
 
-  }catch{
+    // optional: role check
+    const role = localStorage.getItem("role");
+    if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+      alert("Access denied for your role");
+      window.location = "dashboard.html";
+    }
+
+  } catch {
     window.location = "index.html";
   }
 };
 
 
-window.applyRoleMenu = function(){
+/* =========================
+   ROLE BASED MENU
+========================= */
+window.applyRoleMenu = function () {
   const role = localStorage.getItem("role");
 
-  document.querySelectorAll(".nav-admin").forEach(e=> e.style.display="none");
-  document.querySelectorAll(".nav-worker").forEach(e=> e.style.display="none");
+  document.querySelectorAll(".nav-admin").forEach(e => e.style.display = "none");
+  document.querySelectorAll(".nav-worker").forEach(e => e.style.display = "none");
 
-  if(role === "admin"){
-    document.querySelectorAll(".nav-admin").forEach(e=> e.style.display="block");
+  if (role === "admin") {
+    document.querySelectorAll(".nav-admin").forEach(e => e.style.display = "block");
   }
 
-  if(role === "worker" || role === "driver" || role === "recycling_manager"){
-    document.querySelectorAll(".nav-worker").forEach(e=> e.style.display="block");
+  if (role === "worker" || role === "driver" || role === "recycling_manager") {
+    document.querySelectorAll(".nav-worker").forEach(e => e.style.display = "block");
   }
 };
+
 
 /* =========================
-   PROFILE DROPDOWN + MODAL
+   PROFILE DROPDOWN (ONE ONLY)
 ========================= */
-document.addEventListener("click", (e)=>{
-  const btn = $("profileBtn");
-  const dd = $("profileDropdown");
-  if(!btn || !dd) return;
+window.initProfileMenu = function () {
+  const btn = document.getElementById("profileBtn");
+  const menu = document.getElementById("profileDropdown");
+  if (!btn || !menu) return;
 
-  if(btn.contains(e.target)){
-    dd.style.display = (dd.style.display === "block") ? "none" : "block";
-  }else{
-    dd.style.display = "none";
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.style.display = (menu.style.display === "block") ? "none" : "block";
+  });
+
+  // allow clicking inside dropdown
+  menu.addEventListener("click", (e) => e.stopPropagation());
+
+  // close when clicking outside
+  document.addEventListener("click", () => {
+    menu.style.display = "none";
+  });
+};
+
+
+/* =========================
+   PROFILE PAGE LOAD (profile.html)
+========================= */
+window.loadProfile = async function () {
+  const token = localStorage.getItem("token");
+  if (!token) { window.location = "index.html"; return; }
+
+  try {
+    // 1) get logged user from backend
+    const res = await fetch(API_URL + "/me", {
+      headers: { Authorization: "Bearer " + token }
+    });
+
+    if (!res.ok) {
+      localStorage.clear();
+      window.location = "index.html";
+      return;
+    }
+
+    const user = await res.json();
+
+    // email
+    if ($("profileEmail")) $("profileEmail").value = user.email || "";
+
+    // role+area from profiles table
+    const { data: p, error } = await supabase
+      .from("profiles")
+      .select("role, area")
+      .eq("id", user.id)
+      .single();
+
+    if (error) throw error;
+
+    if ($("profileRole")) $("profileRole").value = p?.role || "-";
+    if ($("profileArea")) $("profileArea").value = p?.area || "-";
+
+  } catch (e) {
+    toast("Profile load failed: " + e.message);
   }
-});
-
-window.openProfile = async function(){
-  const modal = $("profileModal");
-  if(!modal) return;
-
-  modal.style.display = "block";
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if(!user) return;
-
-  if($("profileEmail")) $("profileEmail").value = user.email || "";
-
-  const { data: p } = await supabase
-    .from("profiles")
-    .select("role, area")
-    .eq("id", user.id)
-    .single();
-
-  if($("profileRole")) $("profileRole").value = p?.role || "";
-  if($("profileArea")) $("profileArea").value = p?.area || "";
 };
 
-window.closeProfile = function(){
-  const modal = $("profileModal");
-  if(modal) modal.style.display = "none";
-};
 
-window.changePassword = async function(){
+// Change password (still via Supabase Auth) -> OPTIONAL
+window.changePassword = async function () {
   const np = $("newPassword")?.value || "";
-  if(np.length < 6){
+  const msg = $("msg");
+
+  if (np.length < 6) {
+    if (msg) msg.textContent = "Password must be at least 6 characters";
     toast("Password must be at least 6 characters");
     return;
   }
 
+  // Only works if user is logged in using Supabase Auth session.
+  // If you only use backend auth, you should implement password change in backend instead.
   const { error } = await supabase.auth.updateUser({ password: np });
-  if(error) toast(error.message);
-  else{
+
+  if (error) {
+    if (msg) msg.textContent = error.message;
+    toast(error.message);
+  } else {
+    if (msg) msg.textContent = "";
     toast("Password updated ✅");
-    if($("newPassword")) $("newPassword").value = "";
-    closeProfile();
+    if ($("newPassword")) $("newPassword").value = "";
   }
 };
 
+
 /* =========================
-   CORE ERP: BINS → TASKS
+   CORE ERP: BINS → TASKS (Supabase)
 ========================= */
-async function getMyProfile(){
-  const { data: { user } } = await supabase.auth.getUser();
-  if(!user) throw new Error("Not logged in");
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, role, area")
-    .eq("id", user.id)
-    .single();
-
-  if(error) throw new Error(error.message);
-  return data;
+async function getMyProfileFromStorage() {
+  return {
+    id: localStorage.getItem("user_id"),
+    role: localStorage.getItem("role"),
+    area: localStorage.getItem("area"),
+  };
 }
 
-async function createPickupTaskIfNeeded(binId, area){
-  // Prevent duplicate OPEN task
+async function createPickupTaskIfNeeded(binId, area) {
+  // prevent duplicate OPEN task
   const { data: existing } = await supabase
     .from("pickup_tasks")
     .select("id")
@@ -235,16 +285,16 @@ async function createPickupTaskIfNeeded(binId, area){
     .eq("status", "OPEN")
     .limit(1);
 
-  if(existing?.length) return;
+  if (existing?.length) return;
 
-  // Assign 1 worker + 1 driver from same area (demo-friendly)
+  // assign 1 worker + 1 driver from same area
   const { data: workers } = await supabase
     .from("profiles").select("id")
-    .eq("role","worker").eq("area", area).limit(1);
+    .eq("role", "worker").eq("area", area).limit(1);
 
   const { data: drivers } = await supabase
     .from("profiles").select("id")
-    .eq("role","driver").eq("area", area).limit(1);
+    .eq("role", "driver").eq("area", area).limit(1);
 
   const { error } = await supabase.from("pickup_tasks").insert([{
     bin_id: binId,
@@ -254,18 +304,19 @@ async function createPickupTaskIfNeeded(binId, area){
     status: "OPEN"
   }]);
 
-  if(error) throw new Error(error.message);
+  if (error) throw new Error(error.message);
 }
 
-window.saveBin = async function(){
-  try{
+
+window.saveBin = async function () {
+  try {
     const binId = $("binid")?.value?.trim();
-    const area  = $("binarea")?.value?.trim();
+    const area = $("binarea")?.value?.trim();
     const status = $("status")?.value;
 
-    if(!binId || !area){ toast("Enter Bin ID and Area"); return; }
+    if (!binId || !area) { toast("Enter Bin ID and Area"); return; }
 
-    const me = await getMyProfile();
+    const me = await getMyProfileFromStorage();
 
     // upsert by bin_id
     const { data: found } = await supabase
@@ -274,54 +325,48 @@ window.saveBin = async function(){
       .eq("bin_id", binId)
       .limit(1);
 
-    if(found?.length){
+    if (found?.length) {
       const { error } = await supabase
         .from("bins")
-        .update({
-          area,
-          status,
-          updated_by: me.id,
-          updated_at: new Date().toISOString()
-        })
+        .update({ area, status, updated_by: me.id, updated_at: new Date().toISOString() })
         .eq("id", found[0].id);
-
-      if(error) throw new Error(error.message);
-    }else{
+      if (error) throw new Error(error.message);
+    } else {
       const { error } = await supabase
         .from("bins")
         .insert([{ bin_id: binId, area, status, updated_by: me.id }]);
-
-      if(error) throw new Error(error.message);
+      if (error) throw new Error(error.message);
     }
 
-    // Auto workflow
-    if(status === "Full"){
+    if (status === "Full") {
       await createPickupTaskIfNeeded(binId, area);
       toast("Bin FULL → Task created ✅");
-    }else{
+    } else {
       toast("Bin updated ✅");
     }
 
-    if(window.renderBins) window.renderBins();
-  }catch(e){
+    if (window.renderBins) window.renderBins();
+
+  } catch (e) {
     toast("Error: " + e.message);
   }
 };
 
-window.renderBins = async function(){
+
+window.renderBins = async function () {
   const tbody = $("binsBody");
-  if(!tbody) return;
+  if (!tbody) return;
 
   const q = ($("searchBins")?.value || "").toLowerCase();
 
   const { data, error } = await supabase
     .from("bins")
     .select("bin_id, area, status, updated_at")
-    .order("updated_at", { ascending:false });
+    .order("updated_at", { ascending: false });
 
-  if(error){ tbody.innerHTML=""; toast(error.message); return; }
+  if (error) { tbody.innerHTML = ""; toast(error.message); return; }
 
-  const pill = (s)=> s==="Full" ? "bad" : (s==="Half" ? "warn" : "good");
+  const pill = (s) => s === "Full" ? "bad" : (s === "Half" ? "warn" : "good");
 
   const list = (data || []).filter(x =>
     x.bin_id.toLowerCase().includes(q) ||
@@ -329,7 +374,7 @@ window.renderBins = async function(){
     x.status.toLowerCase().includes(q)
   );
 
-  tbody.innerHTML = list.map(x=>`
+  tbody.innerHTML = list.map(x => `
     <tr>
       <td>${x.bin_id}</td>
       <td>${x.area}</td>
@@ -339,35 +384,30 @@ window.renderBins = async function(){
   `).join("");
 };
 
-/* =========================
-   MY TASKS: Worker/Driver/Manager
-========================= */
-window.loadMyTasks = async function(){
-  const tbody = $("tasksBody");
-  if(!tbody) return;
 
-  const { data: { user } } = await supabase.auth.getUser();
+/* =========================
+   MY TASKS (ROLE aware)
+========================= */
+window.loadMyTasks = async function () {
+  const tbody = $("tasksBody");
+  if (!tbody) return;
+
   const role = localStorage.getItem("role");
+  const userId = localStorage.getItem("user_id");
 
   let query = supabase
     .from("pickup_tasks")
     .select("*")
-    .order("created_at",{ ascending:false });
+    .order("created_at", { ascending: false });
 
-  // worker & driver only see assigned tasks
-  if(role === "worker" || role === "driver"){
-    query = query.or(`assigned_worker_id.eq.${user.id},assigned_driver_id.eq.${user.id}`);
+  if (role === "worker" || role === "driver") {
+    query = query.or(`assigned_worker_id.eq.${userId},assigned_driver_id.eq.${userId}`);
   }
 
   const { data, error } = await query;
+  if (error) { tbody.innerHTML = ""; toast(error.message); return; }
 
-  if(error){
-    tbody.innerHTML = "";
-    toast(error.message);
-    return;
-  }
-
-  tbody.innerHTML = (data || []).map(t=>`
+  tbody.innerHTML = (data || []).map(t => `
     <tr>
       <td>${t.bin_id}</td>
       <td>${t.area}</td>
@@ -377,92 +417,87 @@ window.loadMyTasks = async function(){
   `).join("");
 };
 
-function taskActionButton(t, role){
-  if(role==="worker" && t.status==="OPEN")
+function taskActionButton(t, role) {
+  if (role === "worker" && t.status === "OPEN")
     return `<button class="btn" onclick="markCollected('${t.id}')">Mark Collected</button>`;
-  if(role==="driver" && t.status==="COLLECTED")
+  if (role === "driver" && t.status === "COLLECTED")
     return `<button class="btn" onclick="markDelivered('${t.id}')">Mark Delivered</button>`;
-  if(role==="recycling_manager" && t.status==="DELIVERED")
+  if (role === "recycling_manager" && t.status === "DELIVERED")
     return `<button class="btn" onclick="markRecycled('${t.id}')">Mark Recycled</button>`;
   return "-";
 }
 
-window.markCollected = async function(taskId){
+window.markCollected = async function (taskId) {
   const kg = prompt("Collected kg?");
-  if(!kg) return;
+  if (!kg) return;
 
   const { error } = await supabase
     .from("pickup_tasks")
-    .update({
-      status:"COLLECTED",
-      collected_at: new Date().toISOString(),
-      collected_kg: kg
-    })
+    .update({ status: "COLLECTED", collected_at: new Date().toISOString(), collected_kg: kg })
     .eq("id", taskId);
 
-  if(error) toast(error.message);
+  if (error) toast(error.message);
   else toast("Collected ✅");
 
   loadMyTasks();
 };
 
-window.markDelivered = async function(taskId){
+window.markDelivered = async function (taskId) {
   const { error } = await supabase
     .from("pickup_tasks")
-    .update({
-      status:"DELIVERED",
-      delivered_at: new Date().toISOString()
-    })
+    .update({ status: "DELIVERED", delivered_at: new Date().toISOString() })
     .eq("id", taskId);
 
-  if(error) toast(error.message);
+  if (error) toast(error.message);
   else toast("Delivered ✅");
 
   loadMyTasks();
 };
 
-window.markRecycled = async function(taskId){
+window.markRecycled = async function (taskId) {
   const received = prompt("Received kg?");
-  if(!received) return;
+  if (!received) return;
 
   const percent = prompt("Recycle %?");
-  if(!percent) return;
+  if (!percent) return;
 
   const { error } = await supabase
     .from("pickup_tasks")
     .update({
-      status:"RECYCLED",
+      status: "RECYCLED",
       received_kg: received,
       recycle_percent: percent,
       recycled_at: new Date().toISOString()
     })
     .eq("id", taskId);
 
-  if(error) toast(error.message);
+  if (error) toast(error.message);
   else toast("Recycled ✅");
 
   loadMyTasks();
 };
+
 
 /* =========================
    USERS (Admin)
 ========================= */
 let _usersCache = [];
 
-window.loadUsers = async function(){
+window.loadUsers = async function () {
   const { data, error } = await supabase
     .from("profiles")
     .select("id, email, role, area, created_at")
-    .order("created_at", { ascending:false });
+    .order("created_at", { ascending: false });
 
-  if(error){ toast("Load users failed: " + error.message); return; }
+  if (error) { toast("Load users failed: " + error.message); return; }
+
   _usersCache = data || [];
   window.renderUsers();
 };
 
-window.renderUsers = function(){
+window.renderUsers = function () {
   const tbody = $("usersBody");
-  if(!tbody) return;
+  if (!tbody) return;
 
   const q = ($("searchUsers")?.value || "").toLowerCase();
 
@@ -472,13 +507,13 @@ window.renderUsers = function(){
     (u.area || "").toLowerCase().includes(q)
   );
 
-  tbody.innerHTML = list.map(u=>`
+  tbody.innerHTML = list.map(u => `
     <tr>
       <td>${u.email || ""}</td>
       <td>
         <select id="role_${u.id}">
-          ${["admin","worker","driver","recycling_manager"].map(r =>
-            `<option value="${r}" ${u.role===r?"selected":""}>${r}</option>`
+          ${["admin", "worker", "driver", "recycling_manager"].map(r =>
+            `<option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>`
           ).join("")}
         </select>
       </td>
@@ -488,141 +523,19 @@ window.renderUsers = function(){
   `).join("");
 };
 
-window.updateUser = async function(userId){
+window.updateUser = async function (userId) {
   const role = $("role_" + userId)?.value;
   const area = $("area_" + userId)?.value?.trim();
 
-  if(!area){ toast("Area required"); return; }
+  if (!area) { toast("Area required"); return; }
 
   const { error } = await supabase
     .from("profiles")
     .update({ role, area })
     .eq("id", userId);
 
-  if(error){ toast("Update failed: " + error.message); return; }
+  if (error) { toast("Update failed: " + error.message); return; }
 
   toast("User updated ✅");
   loadUsers();
-};
-
-// ---------- PROFILE MENU (FINAL FIX) ----------
-window.initProfileMenu = function () {
-  const btn = document.getElementById("profileBtn");
-  const menu = document.getElementById("profileDropdown");
-  if (!btn || !menu) return;
-
-  // open dropdown
-  btn.addEventListener("click", function (e) {
-    e.stopPropagation();
-    menu.style.display =
-      menu.style.display === "block" ? "none" : "block";
-  });
-
-  // close when clicking outside
-  document.addEventListener("click", function () {
-    menu.style.display = "none";
-  });
-
-  // IMPORTANT: allow clicking inside dropdown
-  menu.addEventListener("click", function (e) {
-    e.stopPropagation();
-  });
-};
-
-
-window.loadProfile = async function () {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      window.location = "index.html";
-      return;
-    }
-
-    // email from auth
-    const emailEl = document.getElementById("profileEmail");
-    if (emailEl) emailEl.value = user.email || "";
-
-    // role+area from profiles table
-    const { data: profile, error } = await supabase
-      .from("profiles")
-      .select("role, area")
-      .eq("id", user.id)
-      .single();
-
-    if (error) throw error;
-
-    document.getElementById("profileRole").value = profile?.role || "-";
-    document.getElementById("profileArea").value = profile?.area || "-";
-  } catch (e) {
-    toast("Profile load failed: " + e.message);
-  }
-};
-
-window.changePassword = async function () {
-  const p1 = document.getElementById("newPassword")?.value || "";
-  const p2 = document.getElementById("confirmNewPassword")?.value || "";
-  const msg = document.getElementById("msg");
-
-  if (!p1 || !p2) {
-    if (msg) msg.textContent = "Enter both password fields";
-    return;
-  }
-  if (p1 !== p2) {
-    if (msg) msg.textContent = "Passwords do not match";
-    return;
-  }
-  if (p1.length < 6) {
-    if (msg) msg.textContent = "Password must be at least 6 characters";
-    return;
-  }
-
-  if (msg) msg.textContent = "Updating...";
-
-  const { error } = await supabase.auth.updateUser({ password: p1 });
-
-  if (error) {
-    if (msg) msg.textContent = error.message;
-    return;
-  }
-
-  if (msg) msg.textContent = "";
-  document.getElementById("newPassword").value = "";
-  document.getElementById("confirmNewPassword").value = "";
-  toast("Password updated ✅");
-};
-
-window.initProfileMenu = function () {
-  const btn = document.getElementById("profileBtn");
-  const dd = document.getElementById("profileDropdown");
-  if (!btn || !dd) return;
-
-  btn.addEventListener("click", () => {
-    dd.style.display = (dd.style.display === "block") ? "none" : "block";
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!dd.contains(e.target) && e.target !== btn) dd.style.display = "none";
-  });
-};
-
-// ---------- PROFILE MENU ----------
-window.initProfileMenu = function () {
-
-  const btn = document.getElementById("profileBtn");
-  const menu = document.getElementById("profileDropdown");
-
-  if (!btn || !menu) return;
-
-  // open dropdown
-  btn.onclick = () => {
-    menu.style.display =
-      menu.style.display === "block" ? "none" : "block";
-  };
-
-  // close when clicking outside
-  document.addEventListener("click", (e) => {
-    if (!btn.contains(e.target) && !menu.contains(e.target)) {
-      menu.style.display = "none";
-    }
-  });
 };
