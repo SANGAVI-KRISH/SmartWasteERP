@@ -43,7 +43,7 @@ async function apiFetch(path, options = {}) {
   try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
 
   if (!res.ok) {
-    const backendMsg = data?.error || data?.message;
+    const backendMsg = data?.error || data?.message || data?.supabase_error;
     let msg = backendMsg || `Request failed (${res.status})`;
     if (res.status === 404) msg = `404 Not Found: Wrong API_URL or wrong route: ${path}`;
     return { ok: false, status: res.status, data, raw, error: msg, url };
@@ -65,14 +65,18 @@ function normalizeRole(roleRaw) {
 }
 
 /* =========================
-   AUTH (Backend Token)
+   AUTH (Supabase Auth + Profile)
 ========================= */
 
-// SIGNUP -> backend /api/signup
+/**
+ * SIGNUP FLOW (Fixed ✅)
+ * 1) Create Supabase Auth user using supabase.auth.signUp()
+ * 2) Call backend to create/upsrt profile row (/api/create-profile)
+ */
 window.signUp = async function () {
   const roleRaw = $("role")?.value;
   const area = ($("area")?.value || "").trim();
-  const email = ($("email")?.value || "").trim();
+  const email = ($("email")?.value || "").trim().toLowerCase();
   const password = $("password")?.value || "";
   const confirm = $("confirmPassword")?.value || "";
   const msg = $("msg");
@@ -90,26 +94,47 @@ window.signUp = async function () {
 
   if (msg) msg.textContent = "Creating account...";
 
-  const r = await apiFetch("/api/signup", {
+  // 1) Create auth user (Supabase)
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password
+  });
+
+  if (error || !data?.user) {
+    if (msg) msg.textContent = error?.message || "Signup failed";
+    console.log("SUPABASE SIGNUP error:", error);
+    return;
+  }
+
+  // If email confirmation is ON in Supabase, user may be unconfirmed
+  // For demo: turn OFF email confirmation in Supabase Auth settings OR confirm email.
+  const userId = data.user.id;
+
+  // 2) Create profile row via backend (admin bypass RLS)
+  const r = await apiFetch("/api/create-profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, role, area })
+    body: JSON.stringify({ id: userId, email, role, area })
   });
 
   if (!r.ok) {
     if (msg) msg.textContent = r.error;
-    console.log("SIGNUP debug:", { url: r.url, status: r.status, raw: r.raw });
+    console.log("CREATE-PROFILE debug:", { url: r.url, status: r.status, raw: r.raw });
     return;
   }
 
   if (msg) msg.textContent = "Account created ✅ Now login";
-  setTimeout(() => (window.location = "index.html"), 1200);
+  setTimeout(() => (window.location = "index.html"), 900);
 };
 
-
-// LOGIN -> backend /api/login
+/**
+ * LOGIN FLOW (Fixed ✅)
+ * 1) Sign in directly with Supabase Auth
+ * 2) Read profile from profiles table
+ * 3) Store role/area/user_id and redirect
+ */
 window.signIn = async function () {
-  const email = ($("email")?.value || "").trim();
+  const email = ($("email")?.value || "").trim().toLowerCase();
   const password = $("password")?.value || "";
   const msg = $("msg");
 
@@ -118,69 +143,71 @@ window.signIn = async function () {
     return;
   }
 
-  if (msg) msg.textContent = "Connecting to server...";
+  if (msg) msg.textContent = "Signing in...";
 
-  const r = await apiFetch("/api/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password
   });
 
-  if (!r.ok) {
-    if (msg) msg.textContent = r.error;
-    console.log("LOGIN debug:", { url: r.url, status: r.status, raw: r.raw });
+  if (error || !data?.user) {
+    if (msg) msg.textContent = error?.message || "Login failed";
+    console.log("SUPABASE LOGIN error:", error);
     return;
   }
 
-  const data = r.data; // { token, user: {id,email}, profile: {role,area,...} }
+  const user = data.user;
 
-  // store session token
-  localStorage.setItem("token", data.token);
-  localStorage.setItem("user_id", data.user.id);
+  // Store user id
+  localStorage.setItem("user_id", user.id);
 
-  // ✅ BEST: use profile returned by backend
-  if (data.profile?.role) localStorage.setItem("role", data.profile.role);
-  if (data.profile?.area) localStorage.setItem("area", data.profile.area);
+  // OPTIONAL: keep backend JWT if you still use /api/me protections
+  // If you want JWT too, your backend must expose /api/login (but we are not using it now).
+  // We'll store supabase session access token as "token" so existing protectPage works.
+  const accessToken = data.session?.access_token || "";
+  localStorage.setItem("token", accessToken);
 
-  // If profile wasn't included for some reason, fallback to /api/profile
-  if (!data.profile?.role || !data.profile?.area) {
-    const pr = await apiFetch("/api/profile", {
-      headers: { Authorization: "Bearer " + data.token }
-    });
+  // Load profile from profiles table
+  const { data: p, error: perr } = await supabase
+    .from("profiles")
+    .select("role, area")
+    .eq("id", user.id)
+    .maybeSingle();
 
-    if (!pr.ok) {
-      if (msg) msg.textContent = "Profile not found. Ask admin / signup again.";
-      console.log("PROFILE debug:", { url: pr.url, status: pr.status, raw: pr.raw });
-      return;
-    }
-
-    localStorage.setItem("role", pr.data.role);
-    localStorage.setItem("area", pr.data.area);
+  if (perr) {
+    console.log("PROFILE SELECT error:", perr);
+    if (msg) msg.textContent = "Profile read blocked (RLS). Fix profiles SELECT policy.";
+    return;
   }
+
+  if (!p) {
+    if (msg) msg.textContent = "Profile missing. Ask admin or signup again.";
+    return;
+  }
+
+  localStorage.setItem("role", p.role);
+  localStorage.setItem("area", p.area);
 
   window.location = "dashboard.html";
 };
 
-
 window.logout = async function () {
+  try { await supabase.auth.signOut(); } catch {}
   localStorage.clear();
   window.location = "index.html";
 };
 
-
-// PROTECT PAGE (token check via backend /api/me)
+/**
+ * PROTECT PAGE
+ * If you want to keep your backend /api/me JWT validation:
+ * - change this to call Supabase session instead
+ * For now, we simply check supabase session exists.
+ */
 window.protectPage = async function (allowedRoles = []) {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    window.location = "index.html";
-    return;
-  }
+  const { data } = await supabase.auth.getSession();
+  const session = data?.session;
 
-  const r = await apiFetch("/api/me", {
-    headers: { Authorization: "Bearer " + token }
-  });
-
-  if (!r.ok) {
+  if (!session) {
     localStorage.clear();
     window.location = "index.html";
     return;
@@ -192,7 +219,6 @@ window.protectPage = async function (allowedRoles = []) {
     window.location = "dashboard.html";
   }
 };
-
 
 /* =========================
    ROLE BASED MENU
@@ -212,9 +238,8 @@ window.applyRoleMenu = function () {
   }
 };
 
-
 /* =========================
-   PROFILE DROPDOWN
+   PROFILE DROPDOWN (ONE ONLY)
 ========================= */
 window.initProfileMenu = function () {
   const btn = document.getElementById("profileBtn");
@@ -230,43 +255,44 @@ window.initProfileMenu = function () {
   document.addEventListener("click", () => (menu.style.display = "none"));
 };
 
-
 /* =========================
    PROFILE PAGE LOAD (profile.html)
 ========================= */
 window.loadProfile = async function () {
-  const token = localStorage.getItem("token");
-  if (!token) { window.location = "index.html"; return; }
+  const userId = localStorage.getItem("user_id");
+  if (!userId) { window.location = "index.html"; return; }
 
-  // verify token with backend
-  const me = await apiFetch("/api/me", {
-    headers: { Authorization: "Bearer " + token }
-  });
-
-  if (!me.ok) {
+  const { data: sess } = await supabase.auth.getSession();
+  if (!sess?.session) {
     localStorage.clear();
     window.location = "index.html";
     return;
   }
 
-  if ($("profileEmail")) $("profileEmail").value = me.data.email || "";
+  const userEmail = sess.session.user?.email || "";
+  if ($("profileEmail")) $("profileEmail").value = userEmail;
 
-  // ✅ get profile from backend (no RLS issue)
-  const pr = await apiFetch("/api/profile", {
-    headers: { Authorization: "Bearer " + token }
-  });
+  const { data: p, error } = await supabase
+    .from("profiles")
+    .select("role, area")
+    .eq("id", userId)
+    .maybeSingle();
 
-  if (!pr.ok) {
-    toast("Profile not found. Ask admin / signup again.");
+  if (error) {
+    toast("Profile load blocked (RLS): " + error.message);
     return;
   }
 
-  if ($("profileRole")) $("profileRole").value = pr.data.role || "-";
-  if ($("profileArea")) $("profileArea").value = pr.data.area || "-";
+  if (!p) {
+    toast("Profile row not found. Signup again or ask admin.");
+    return;
+  }
+
+  if ($("profileRole")) $("profileRole").value = p.role || "-";
+  if ($("profileArea")) $("profileArea").value = p.area || "-";
 };
 
-
-// Change password (Supabase Auth) -> OPTIONAL
+// Change password (Supabase Auth)
 window.changePassword = async function () {
   const np = $("newPassword")?.value || "";
   const msg = $("msg");
@@ -288,7 +314,6 @@ window.changePassword = async function () {
     if ($("newPassword")) $("newPassword").value = "";
   }
 };
-
 
 /* =========================
    CORE ERP: BINS → TASKS (Supabase)
@@ -332,7 +357,6 @@ async function createPickupTaskIfNeeded(binId, area) {
 
   if (error) throw new Error(error.message);
 }
-
 
 window.saveBin = async function () {
   try {
@@ -378,7 +402,6 @@ window.saveBin = async function () {
   }
 };
 
-
 window.renderBins = async function () {
   const tbody = $("binsBody");
   if (!tbody) return;
@@ -409,7 +432,6 @@ window.renderBins = async function () {
     </tr>
   `).join("");
 };
-
 
 /* =========================
    MY TASKS (ROLE aware)
@@ -502,7 +524,6 @@ window.markRecycled = async function (taskId) {
 
   loadMyTasks();
 };
-
 
 /* =========================
    USERS (Admin)

@@ -285,3 +285,18 @@ app.use((req, res) => {
 -------------------------- */
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log("✅ Backend running on", PORT));
+
+app.post("/api/create-profile", async (req, res) => {
+  const { id, email, role, area } = req.body;
+  if (!id || !email || !role || !area) {
+    return res.status(400).json({ error: "Missing fields" });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("profiles")
+    .upsert([{ id, email, role, area }], { onConflict: "id" });
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  res.json({ message: "Profile created" });
+});
