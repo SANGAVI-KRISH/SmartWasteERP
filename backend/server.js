@@ -107,9 +107,10 @@ app.post("/api/signup", async (req, res) => {
     const userId = data.user.id;
 
     // Insert profile row (admin bypasses RLS)
-    const { error: perr } = await supabaseAdmin.from("profiles").insert([
-      { id: userId, email, role, area },
-    ]);
+    const { error: perr } = await supabaseAdmin
+  .from("profiles")
+  .upsert([{ id: userId, email, role, area }], { onConflict: "id" });
+
 
     if (perr) return res.status(400).json({ error: perr.message });
 
