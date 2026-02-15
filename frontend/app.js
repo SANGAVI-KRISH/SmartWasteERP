@@ -1,4 +1,4 @@
-import { API_URL } from "./config.js";
+import { API_URL as RAW_API_URL } from "./config.js";
 import { supabase } from "./supabaseClient.js";
 
 /* =========================
@@ -15,11 +15,51 @@ window.toast = function (msg) {
   window.__toastTimer = setTimeout(() => t.style.display = "none", 1700);
 };
 
+// Normalize API URL (remove trailing slash)
+const API_URL = (RAW_API_URL || "").replace(/\/+$/, "");
+
+/* =========================
+   API Helper (prevents JSON crash)
+========================= */
+async function apiFetch(path, options = {}) {
+  const url = API_URL + path;
+
+  let res;
+  try {
+    res = await fetch(url, options);
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      raw: "",
+      error: "Network error: cannot reach backend (URL/DNS/blocked)"
+    };
+  }
+
+  const raw = await res.text(); // may be JSON OR HTML
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
+
+  if (!res.ok) {
+    const backendMsg = data?.error || data?.message;
+    let msg = backendMsg || `Request failed (${res.status})`;
+
+    if (res.status === 404) {
+      msg = `404 Not Found: Wrong API_URL or wrong route: ${path}`;
+    }
+
+    return { ok: false, status: res.status, data, raw, error: msg };
+  }
+
+  return { ok: true, status: res.status, data, raw, error: null };
+}
+
 /* =========================
    AUTH (Backend Token)
 ========================= */
 
-// SIGNUP  -> backend /signup
+// SIGNUP -> backend /api/signup
 window.signUp = async function () {
   const role = $("role")?.value;
   const area = $("area")?.value?.trim();
@@ -39,30 +79,24 @@ window.signUp = async function () {
 
   if (msg) msg.textContent = "Creating account...";
 
-  try {
-    const res = await fetch(API_URL + "/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, role, area })
-    });
+  const r = await apiFetch("/api/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, role, area })
+  });
 
-    const data = await res.json();
-
-    if (!res.ok) {
-      if (msg) msg.textContent = data.error || "Signup failed";
-      return;
-    }
-
-    if (msg) msg.textContent = "Account created ✅ Now login";
-    setTimeout(() => window.location = "index.html", 1500);
-
-  } catch (e) {
-    if (msg) msg.textContent = "Backend not reachable (Render sleeping?)";
+  if (!r.ok) {
+    if (msg) msg.textContent = r.error;
+    console.log("SIGNUP debug:", { url: API_URL + "/api/signup", status: r.status, raw: r.raw });
+    return;
   }
+
+  if (msg) msg.textContent = "Account created ✅ Now login";
+  setTimeout(() => window.location = "index.html", 1200);
 };
 
 
-// LOGIN -> backend /login
+// LOGIN -> backend /api/login
 window.signIn = async function () {
   const email = $("email")?.value?.trim();
   const password = $("password")?.value;
@@ -75,44 +109,38 @@ window.signIn = async function () {
 
   if (msg) msg.textContent = "Connecting to server...";
 
-  try {
-    const res = await fetch(API_URL + "/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
+  const r = await apiFetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
 
-    const data = await res.json();
-
-    if (!res.ok) {
-      if (msg) msg.textContent = data.error || "Login failed";
-      return;
-    }
-
-    // store session token
-    localStorage.setItem("token", data.token);
-    localStorage.setItem("user_id", data.user.id);
-
-    // fetch role+area from profiles table
-    const { data: p, error: perr } = await supabase
-      .from("profiles")
-      .select("role, area")
-      .eq("id", data.user.id)
-      .single();
-
-    if (perr || !p) {
-      if (msg) msg.textContent = "Profile missing. Contact admin.";
-      return;
-    }
-
-    localStorage.setItem("role", p.role);
-    localStorage.setItem("area", p.area);
-
-    window.location = "dashboard.html";
-
-  } catch (err) {
-    if (msg) msg.textContent = "Cannot reach server (Render sleeping or CORS)";
+  if (!r.ok) {
+    if (msg) msg.textContent = r.error;
+    console.log("LOGIN debug:", { url: API_URL + "/api/login", status: r.status, raw: r.raw });
+    return;
   }
+
+  const data = r.data; // expected { token, user }
+
+  localStorage.setItem("token", data.token);
+  localStorage.setItem("user_id", data.user.id);
+
+  const { data: p, error: perr } = await supabase
+    .from("profiles")
+    .select("role, area")
+    .eq("id", data.user.id)
+    .single();
+
+  if (perr || !p) {
+    if (msg) msg.textContent = "Profile missing. Contact admin.";
+    return;
+  }
+
+  localStorage.setItem("role", p.role);
+  localStorage.setItem("area", p.area);
+
+  window.location = "dashboard.html";
 };
 
 
@@ -122,7 +150,7 @@ window.logout = async function () {
 };
 
 
-// PROTECT PAGE (token check via backend /me)
+// PROTECT PAGE (token check via backend /api/me)
 window.protectPage = async function (allowedRoles = []) {
   const token = localStorage.getItem("token");
   if (!token) {
@@ -130,26 +158,20 @@ window.protectPage = async function (allowedRoles = []) {
     return;
   }
 
-  try {
-    const res = await fetch(API_URL + "/me", {
-      headers: { Authorization: "Bearer " + token }
-    });
+  const r = await apiFetch("/api/me", {
+    headers: { Authorization: "Bearer " + token }
+  });
 
-    if (!res.ok) {
-      localStorage.clear();
-      window.location = "index.html";
-      return;
-    }
-
-    // optional: role check
-    const role = localStorage.getItem("role");
-    if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-      alert("Access denied for your role");
-      window.location = "dashboard.html";
-    }
-
-  } catch {
+  if (!r.ok) {
+    localStorage.clear();
     window.location = "index.html";
+    return;
+  }
+
+  const role = localStorage.getItem("role");
+  if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    alert("Access denied for your role");
+    window.location = "dashboard.html";
   }
 };
 
@@ -186,10 +208,8 @@ window.initProfileMenu = function () {
     menu.style.display = (menu.style.display === "block") ? "none" : "block";
   });
 
-  // allow clicking inside dropdown
   menu.addEventListener("click", (e) => e.stopPropagation());
 
-  // close when clicking outside
   document.addEventListener("click", () => {
     menu.style.display = "none";
   });
@@ -203,42 +223,37 @@ window.loadProfile = async function () {
   const token = localStorage.getItem("token");
   if (!token) { window.location = "index.html"; return; }
 
-  try {
-    // 1) get logged user from backend
-    const res = await fetch(API_URL + "/me", {
-      headers: { Authorization: "Bearer " + token }
-    });
+  const r = await apiFetch("/api/me", {
+    headers: { Authorization: "Bearer " + token }
+  });
 
-    if (!res.ok) {
-      localStorage.clear();
-      window.location = "index.html";
-      return;
-    }
-
-    const user = await res.json();
-
-    // email
-    if ($("profileEmail")) $("profileEmail").value = user.email || "";
-
-    // role+area from profiles table
-    const { data: p, error } = await supabase
-      .from("profiles")
-      .select("role, area")
-      .eq("id", user.id)
-      .single();
-
-    if (error) throw error;
-
-    if ($("profileRole")) $("profileRole").value = p?.role || "-";
-    if ($("profileArea")) $("profileArea").value = p?.area || "-";
-
-  } catch (e) {
-    toast("Profile load failed: " + e.message);
+  if (!r.ok) {
+    localStorage.clear();
+    window.location = "index.html";
+    return;
   }
+
+  const user = r.data;
+
+  if ($("profileEmail")) $("profileEmail").value = user.email || "";
+
+  const { data: p, error } = await supabase
+    .from("profiles")
+    .select("role, area")
+    .eq("id", user.id)
+    .single();
+
+  if (error) {
+    toast("Profile load failed: " + error.message);
+    return;
+  }
+
+  if ($("profileRole")) $("profileRole").value = p?.role || "-";
+  if ($("profileArea")) $("profileArea").value = p?.area || "-";
 };
 
 
-// Change password (still via Supabase Auth) -> OPTIONAL
+// Change password (Supabase Auth) -> OPTIONAL
 window.changePassword = async function () {
   const np = $("newPassword")?.value || "";
   const msg = $("msg");
@@ -249,8 +264,6 @@ window.changePassword = async function () {
     return;
   }
 
-  // Only works if user is logged in using Supabase Auth session.
-  // If you only use backend auth, you should implement password change in backend instead.
   const { error } = await supabase.auth.updateUser({ password: np });
 
   if (error) {
@@ -277,7 +290,6 @@ async function getMyProfileFromStorage() {
 }
 
 async function createPickupTaskIfNeeded(binId, area) {
-  // prevent duplicate OPEN task
   const { data: existing } = await supabase
     .from("pickup_tasks")
     .select("id")
@@ -287,7 +299,6 @@ async function createPickupTaskIfNeeded(binId, area) {
 
   if (existing?.length) return;
 
-  // assign 1 worker + 1 driver from same area
   const { data: workers } = await supabase
     .from("profiles").select("id")
     .eq("role", "worker").eq("area", area).limit(1);
@@ -318,7 +329,6 @@ window.saveBin = async function () {
 
     const me = await getMyProfileFromStorage();
 
-    // upsert by bin_id
     const { data: found } = await supabase
       .from("bins")
       .select("id")
