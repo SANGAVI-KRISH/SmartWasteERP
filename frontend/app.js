@@ -12,7 +12,7 @@ window.toast = function (msg) {
   t.textContent = msg;
   t.style.display = "block";
   clearTimeout(window.__toastTimer);
-  window.__toastTimer = setTimeout(() => t.style.display = "none", 1700);
+  window.__toastTimer = setTimeout(() => (t.style.display = "none"), 1700);
 };
 
 // Normalize API URL (remove trailing slash)
@@ -33,7 +33,8 @@ async function apiFetch(path, options = {}) {
       status: 0,
       data: null,
       raw: "",
-      error: "Network error: cannot reach backend (URL/DNS/blocked)"
+      error: "Network error: cannot reach backend (URL/DNS/blocked)",
+      url
     };
   }
 
@@ -44,11 +45,7 @@ async function apiFetch(path, options = {}) {
   if (!res.ok) {
     const backendMsg = data?.error || data?.message;
     let msg = backendMsg || `Request failed (${res.status})`;
-
-    if (res.status === 404) {
-      msg = `404 Not Found: Wrong API_URL or wrong route: ${path}`;
-    }
-
+    if (res.status === 404) msg = `404 Not Found: Wrong API_URL or wrong route: ${path}`;
     return { ok: false, status: res.status, data, raw, error: msg, url };
   }
 
@@ -56,39 +53,15 @@ async function apiFetch(path, options = {}) {
 }
 
 /* =========================
-   PROFILES HELPERS
+   ROLE NORMALIZATION
 ========================= */
-
-// Set your default role/area if profile missing
-const DEFAULT_ROLE = "worker";
-const DEFAULT_AREA = "General";
-
-// Reads profile. Returns {profile, error}
-async function fetchProfileById(userId) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, email, role, area")
-    .eq("id", userId)
-    .maybeSingle(); // IMPORTANT: doesn't throw if no row
-
-  return { profile: data, error };
-}
-
-// Creates profile if missing (fallback)
-async function createProfileIfMissing({ id, email }) {
-  const payload = {
-    id,
-    email: email || null,
-    role: DEFAULT_ROLE,
-    area: DEFAULT_AREA
-  };
-
-  // UPSERT avoids duplicate key error
-  const { error } = await supabase
-    .from("profiles")
-    .upsert([payload], { onConflict: "id" });
-
-  return { error, payload };
+function normalizeRole(roleRaw) {
+  const r = (roleRaw || "").trim().toLowerCase();
+  if (r === "recycling manager" || r === "recycling-manager") return "recycling_manager";
+  if (r === "driver") return "driver";
+  if (r === "worker") return "worker";
+  if (r === "admin") return "admin";
+  return r;
 }
 
 /* =========================
@@ -97,12 +70,14 @@ async function createProfileIfMissing({ id, email }) {
 
 // SIGNUP -> backend /api/signup
 window.signUp = async function () {
-  const role = $("role")?.value;
-  const area = $("area")?.value?.trim();
-  const email = $("email")?.value?.trim();
-  const password = $("password")?.value;
-  const confirm = $("confirmPassword")?.value;
+  const roleRaw = $("role")?.value;
+  const area = ($("area")?.value || "").trim();
+  const email = ($("email")?.value || "").trim();
+  const password = $("password")?.value || "";
+  const confirm = $("confirmPassword")?.value || "";
   const msg = $("msg");
+
+  const role = normalizeRole(roleRaw);
 
   if (!role || !area || !email || !password) {
     if (msg) msg.textContent = "Fill all fields";
@@ -128,14 +103,14 @@ window.signUp = async function () {
   }
 
   if (msg) msg.textContent = "Account created ✅ Now login";
-  setTimeout(() => window.location = "index.html", 1200);
+  setTimeout(() => (window.location = "index.html"), 1200);
 };
 
 
 // LOGIN -> backend /api/login
 window.signIn = async function () {
-  const email = $("email")?.value?.trim();
-  const password = $("password")?.value;
+  const email = ($("email")?.value || "").trim();
+  const password = $("password")?.value || "";
   const msg = $("msg");
 
   if (!email || !password) {
@@ -157,55 +132,31 @@ window.signIn = async function () {
     return;
   }
 
-  const data = r.data; // expected { token, user }
+  const data = r.data; // { token, user: {id,email}, profile: {role,area,...} }
 
   // store session token
   localStorage.setItem("token", data.token);
   localStorage.setItem("user_id", data.user.id);
 
-  // 1) Try to load profile
-  const { profile, error: perr } = await fetchProfileById(data.user.id);
+  // ✅ BEST: use profile returned by backend
+  if (data.profile?.role) localStorage.setItem("role", data.profile.role);
+  if (data.profile?.area) localStorage.setItem("area", data.profile.area);
 
-  // If RLS or permission error
-  if (perr) {
-    console.log("profiles select error:", perr);
-    if (msg) msg.textContent = "Profile error: " + (perr.message || "unknown");
-    return;
-  }
-
-  // 2) If profile row missing → auto-create fallback
-  if (!profile) {
-    if (msg) msg.textContent = "Profile missing… creating profile...";
-
-    const { error: ierr, payload } = await createProfileIfMissing({
-      id: data.user.id,
-      email: data.user.email
+  // If profile wasn't included for some reason, fallback to /api/profile
+  if (!data.profile?.role || !data.profile?.area) {
+    const pr = await apiFetch("/api/profile", {
+      headers: { Authorization: "Bearer " + data.token }
     });
 
-    if (ierr) {
-      console.log("profiles insert error:", ierr, payload);
-      if (msg) msg.textContent =
-        "Cannot create profile (RLS?). Fix policies. Error: " + (ierr.message || "unknown");
+    if (!pr.ok) {
+      if (msg) msg.textContent = "Profile not found. Ask admin / signup again.";
+      console.log("PROFILE debug:", { url: pr.url, status: pr.status, raw: pr.raw });
       return;
     }
 
-    // try fetch again
-    const again = await fetchProfileById(data.user.id);
-    if (again.error || !again.profile) {
-      console.log("profile still missing after insert:", again.error);
-      if (msg) msg.textContent = "Profile still missing after creation. Contact admin.";
-      return;
-    }
-
-    localStorage.setItem("role", again.profile.role);
-    localStorage.setItem("area", again.profile.area);
-    window.location = "dashboard.html";
-    return;
+    localStorage.setItem("role", pr.data.role);
+    localStorage.setItem("area", pr.data.area);
   }
-
-  // 3) Profile exists → store role/area
-  localStorage.setItem("role", profile.role);
-  localStorage.setItem("area", profile.area);
 
   window.location = "dashboard.html";
 };
@@ -235,7 +186,6 @@ window.protectPage = async function (allowedRoles = []) {
     return;
   }
 
-  // optional: role check
   const role = localStorage.getItem("role");
   if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
     alert("Access denied for your role");
@@ -250,21 +200,21 @@ window.protectPage = async function (allowedRoles = []) {
 window.applyRoleMenu = function () {
   const role = localStorage.getItem("role");
 
-  document.querySelectorAll(".nav-admin").forEach(e => e.style.display = "none");
-  document.querySelectorAll(".nav-worker").forEach(e => e.style.display = "none");
+  document.querySelectorAll(".nav-admin").forEach(e => (e.style.display = "none"));
+  document.querySelectorAll(".nav-worker").forEach(e => (e.style.display = "none"));
 
   if (role === "admin") {
-    document.querySelectorAll(".nav-admin").forEach(e => e.style.display = "block");
+    document.querySelectorAll(".nav-admin").forEach(e => (e.style.display = "block"));
   }
 
   if (role === "worker" || role === "driver" || role === "recycling_manager") {
-    document.querySelectorAll(".nav-worker").forEach(e => e.style.display = "block");
+    document.querySelectorAll(".nav-worker").forEach(e => (e.style.display = "block"));
   }
 };
 
 
 /* =========================
-   PROFILE DROPDOWN (ONE ONLY)
+   PROFILE DROPDOWN
 ========================= */
 window.initProfileMenu = function () {
   const btn = document.getElementById("profileBtn");
@@ -277,10 +227,7 @@ window.initProfileMenu = function () {
   });
 
   menu.addEventListener("click", (e) => e.stopPropagation());
-
-  document.addEventListener("click", () => {
-    menu.style.display = "none";
-  });
+  document.addEventListener("click", () => (menu.style.display = "none"));
 };
 
 
@@ -291,36 +238,31 @@ window.loadProfile = async function () {
   const token = localStorage.getItem("token");
   if (!token) { window.location = "index.html"; return; }
 
-  const r = await apiFetch("/api/me", {
+  // verify token with backend
+  const me = await apiFetch("/api/me", {
     headers: { Authorization: "Bearer " + token }
   });
 
-  if (!r.ok) {
+  if (!me.ok) {
     localStorage.clear();
     window.location = "index.html";
     return;
   }
 
-  const user = r.data;
+  if ($("profileEmail")) $("profileEmail").value = me.data.email || "";
 
-  // email
-  if ($("profileEmail")) $("profileEmail").value = user.email || "";
+  // ✅ get profile from backend (no RLS issue)
+  const pr = await apiFetch("/api/profile", {
+    headers: { Authorization: "Bearer " + token }
+  });
 
-  // role+area from profiles table
-  const { profile, error } = await fetchProfileById(user.id);
-
-  if (error) {
-    toast("Profile load failed: " + error.message);
+  if (!pr.ok) {
+    toast("Profile not found. Ask admin / signup again.");
     return;
   }
 
-  if (!profile) {
-    toast("Profile not found. Please signup again.");
-    return;
-  }
-
-  if ($("profileRole")) $("profileRole").value = profile?.role || "-";
-  if ($("profileArea")) $("profileArea").value = profile?.area || "-";
+  if ($("profileRole")) $("profileRole").value = pr.data.role || "-";
+  if ($("profileArea")) $("profileArea").value = pr.data.area || "-";
 };
 
 
@@ -394,8 +336,8 @@ async function createPickupTaskIfNeeded(binId, area) {
 
 window.saveBin = async function () {
   try {
-    const binId = $("binid")?.value?.trim();
-    const area = $("binarea")?.value?.trim();
+    const binId = ($("binid")?.value || "").trim();
+    const area = ($("binarea")?.value || "").trim();
     const status = $("status")?.value;
 
     if (!binId || !area) { toast("Enter Bin ID and Area"); return; }
@@ -453,9 +395,9 @@ window.renderBins = async function () {
   const pill = (s) => s === "Full" ? "bad" : (s === "Half" ? "warn" : "good");
 
   const list = (data || []).filter(x =>
-    x.bin_id.toLowerCase().includes(q) ||
-    x.area.toLowerCase().includes(q) ||
-    x.status.toLowerCase().includes(q)
+    (x.bin_id || "").toLowerCase().includes(q) ||
+    (x.area || "").toLowerCase().includes(q) ||
+    (x.status || "").toLowerCase().includes(q)
   );
 
   tbody.innerHTML = list.map(x => `
@@ -609,7 +551,7 @@ window.renderUsers = function () {
 
 window.updateUser = async function (userId) {
   const role = $("role_" + userId)?.value;
-  const area = $("area_" + userId)?.value?.trim();
+  const area = ($("area_" + userId)?.value || "").trim();
 
   if (!area) { toast("Area required"); return; }
 
