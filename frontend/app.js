@@ -49,10 +49,46 @@ async function apiFetch(path, options = {}) {
       msg = `404 Not Found: Wrong API_URL or wrong route: ${path}`;
     }
 
-    return { ok: false, status: res.status, data, raw, error: msg };
+    return { ok: false, status: res.status, data, raw, error: msg, url };
   }
 
-  return { ok: true, status: res.status, data, raw, error: null };
+  return { ok: true, status: res.status, data, raw, error: null, url };
+}
+
+/* =========================
+   PROFILES HELPERS
+========================= */
+
+// Set your default role/area if profile missing
+const DEFAULT_ROLE = "worker";
+const DEFAULT_AREA = "General";
+
+// Reads profile. Returns {profile, error}
+async function fetchProfileById(userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, email, role, area")
+    .eq("id", userId)
+    .maybeSingle(); // IMPORTANT: doesn't throw if no row
+
+  return { profile: data, error };
+}
+
+// Creates profile if missing (fallback)
+async function createProfileIfMissing({ id, email }) {
+  const payload = {
+    id,
+    email: email || null,
+    role: DEFAULT_ROLE,
+    area: DEFAULT_AREA
+  };
+
+  // UPSERT avoids duplicate key error
+  const { error } = await supabase
+    .from("profiles")
+    .upsert([payload], { onConflict: "id" });
+
+  return { error, payload };
 }
 
 /* =========================
@@ -87,7 +123,7 @@ window.signUp = async function () {
 
   if (!r.ok) {
     if (msg) msg.textContent = r.error;
-    console.log("SIGNUP debug:", { url: API_URL + "/api/signup", status: r.status, raw: r.raw });
+    console.log("SIGNUP debug:", { url: r.url, status: r.status, raw: r.raw });
     return;
   }
 
@@ -117,28 +153,59 @@ window.signIn = async function () {
 
   if (!r.ok) {
     if (msg) msg.textContent = r.error;
-    console.log("LOGIN debug:", { url: API_URL + "/api/login", status: r.status, raw: r.raw });
+    console.log("LOGIN debug:", { url: r.url, status: r.status, raw: r.raw });
     return;
   }
 
   const data = r.data; // expected { token, user }
 
+  // store session token
   localStorage.setItem("token", data.token);
   localStorage.setItem("user_id", data.user.id);
 
-  const { data: p, error: perr } = await supabase
-    .from("profiles")
-    .select("role, area")
-    .eq("id", data.user.id)
-    .single();
+  // 1) Try to load profile
+  const { profile, error: perr } = await fetchProfileById(data.user.id);
 
-  if (perr || !p) {
-    if (msg) msg.textContent = "Profile missing. Contact admin.";
+  // If RLS or permission error
+  if (perr) {
+    console.log("profiles select error:", perr);
+    if (msg) msg.textContent = "Profile error: " + (perr.message || "unknown");
     return;
   }
 
-  localStorage.setItem("role", p.role);
-  localStorage.setItem("area", p.area);
+  // 2) If profile row missing → auto-create fallback
+  if (!profile) {
+    if (msg) msg.textContent = "Profile missing… creating profile...";
+
+    const { error: ierr, payload } = await createProfileIfMissing({
+      id: data.user.id,
+      email: data.user.email
+    });
+
+    if (ierr) {
+      console.log("profiles insert error:", ierr, payload);
+      if (msg) msg.textContent =
+        "Cannot create profile (RLS?). Fix policies. Error: " + (ierr.message || "unknown");
+      return;
+    }
+
+    // try fetch again
+    const again = await fetchProfileById(data.user.id);
+    if (again.error || !again.profile) {
+      console.log("profile still missing after insert:", again.error);
+      if (msg) msg.textContent = "Profile still missing after creation. Contact admin.";
+      return;
+    }
+
+    localStorage.setItem("role", again.profile.role);
+    localStorage.setItem("area", again.profile.area);
+    window.location = "dashboard.html";
+    return;
+  }
+
+  // 3) Profile exists → store role/area
+  localStorage.setItem("role", profile.role);
+  localStorage.setItem("area", profile.area);
 
   window.location = "dashboard.html";
 };
@@ -168,6 +235,7 @@ window.protectPage = async function (allowedRoles = []) {
     return;
   }
 
+  // optional: role check
   const role = localStorage.getItem("role");
   if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
     alert("Access denied for your role");
@@ -235,21 +303,24 @@ window.loadProfile = async function () {
 
   const user = r.data;
 
+  // email
   if ($("profileEmail")) $("profileEmail").value = user.email || "";
 
-  const { data: p, error } = await supabase
-    .from("profiles")
-    .select("role, area")
-    .eq("id", user.id)
-    .single();
+  // role+area from profiles table
+  const { profile, error } = await fetchProfileById(user.id);
 
   if (error) {
     toast("Profile load failed: " + error.message);
     return;
   }
 
-  if ($("profileRole")) $("profileRole").value = p?.role || "-";
-  if ($("profileArea")) $("profileArea").value = p?.area || "-";
+  if (!profile) {
+    toast("Profile not found. Please signup again.");
+    return;
+  }
+
+  if ($("profileRole")) $("profileRole").value = profile?.role || "-";
+  if ($("profileArea")) $("profileArea").value = profile?.area || "-";
 };
 
 
@@ -290,6 +361,7 @@ async function getMyProfileFromStorage() {
 }
 
 async function createPickupTaskIfNeeded(binId, area) {
+  // prevent duplicate OPEN task
   const { data: existing } = await supabase
     .from("pickup_tasks")
     .select("id")
@@ -299,6 +371,7 @@ async function createPickupTaskIfNeeded(binId, area) {
 
   if (existing?.length) return;
 
+  // assign 1 worker + 1 driver from same area
   const { data: workers } = await supabase
     .from("profiles").select("id")
     .eq("role", "worker").eq("area", area).limit(1);
@@ -329,6 +402,7 @@ window.saveBin = async function () {
 
     const me = await getMyProfileFromStorage();
 
+    // upsert by bin_id
     const { data: found } = await supabase
       .from("bins")
       .select("id")
