@@ -12,21 +12,27 @@ const app = express();
 /* -------------------------
    CORS
 -------------------------- */
+const ALLOWED_ORIGINS = [
+  "http://127.0.0.1:5500",
+  "http://localhost:5500",
+  "https://smartwaste-erp.netlify.app",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://127.0.0.1:5500",
-      "http://localhost:5500",
-      "https://smartwaste-erp.netlify.app", // ✅ your netlify frontend
-    ],
+    origin: (origin, cb) => {
+      // allow curl/postman/no-origin
+      if (!origin) return cb(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS: " + origin));
+    },
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// handle preflight quickly
 app.options("*", cors());
-
 app.use(express.json());
 
 /* -------------------------
@@ -43,8 +49,9 @@ if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
   );
 }
 
-const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_KEY); // bypass RLS
-const supabaseAuth = createClient(SUPABASE_URL, ANON_KEY);     // auth sign-in
+// Create clients only if we have the required vars (prevents crash loops)
+const supabaseAdmin = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY) : null;
+const supabaseAuth = SUPABASE_URL && ANON_KEY ? createClient(SUPABASE_URL, ANON_KEY) : null;
 
 /* -------------------------
    Helpers
@@ -53,6 +60,15 @@ const ALLOWED_ROLES = ["admin", "worker", "driver", "recycling_manager"];
 
 function normalizeRole(role) {
   return String(role || "").trim().toLowerCase();
+}
+
+function requireSupabase(req, res, next) {
+  if (!supabaseAdmin || !supabaseAuth) {
+    return res.status(500).json({
+      error: "Backend misconfigured (missing Supabase env vars). Check Render env.",
+    });
+  }
+  next();
 }
 
 function authMiddleware(req, res, next) {
@@ -72,13 +88,31 @@ function authMiddleware(req, res, next) {
    Routes
 -------------------------- */
 
-// ✅ Health
+// Health
 app.get("/", (req, res) => {
   res.send("Smart Waste ERP Backend Running 🚀");
 });
 
-// ✅ Signup (creates auth user + profile)
-app.post("/api/signup", async (req, res) => {
+// Optional: quick env/auth connectivity check (safe, no secrets shown)
+app.get("/api/debug-auth", requireSupabase, async (req, res) => {
+  try {
+    // simple query to ensure DB connection works
+    const { error } = await supabaseAdmin.from("profiles").select("id").limit(1);
+    return res.json({
+      ok: !error,
+      supabaseUrlSet: !!SUPABASE_URL,
+      anonKeySet: !!ANON_KEY,
+      serviceKeySet: !!SERVICE_KEY,
+      dbQueryOk: !error,
+      dbError: error?.message || null,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Signup
+app.post("/api/signup", requireSupabase, async (req, res) => {
   try {
     let { email, password, role, area } = req.body;
 
@@ -100,19 +134,29 @@ app.post("/api/signup", async (req, res) => {
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true,
+      email_confirm: true, // demo-friendly
     });
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error || !data?.user) {
+      return res.status(400).json({
+        error: "Signup failed",
+        supabase_error: error?.message || "No user returned",
+      });
+    }
+
     const userId = data.user.id;
 
-    // Insert profile row (admin bypasses RLS)
+    // Upsert profile (no duplicate key issue)
     const { error: perr } = await supabaseAdmin
-  .from("profiles")
-  .upsert([{ id: userId, email, role, area }], { onConflict: "id" });
+      .from("profiles")
+      .upsert([{ id: userId, email, role, area }], { onConflict: "id" });
 
-
-    if (perr) return res.status(400).json({ error: perr.message });
+    if (perr) {
+      return res.status(400).json({
+        error: "Profile upsert failed",
+        supabase_error: perr.message,
+      });
+    }
 
     return res.json({
       message: "User created ✅",
@@ -124,8 +168,8 @@ app.post("/api/signup", async (req, res) => {
   }
 });
 
-// ✅ Login (auth + returns profile + jwt)
-app.post("/api/login", async (req, res) => {
+// Login
+app.post("/api/login", requireSupabase, async (req, res) => {
   try {
     let { email, password } = req.body;
     email = String(email || "").trim().toLowerCase();
@@ -141,10 +185,14 @@ app.post("/api/login", async (req, res) => {
     });
 
     if (error || !data?.user) {
-      return res.status(401).json({ error: "Invalid email or password" });
+      // ✅ expose real reason (so you can fix immediately)
+      return res.status(401).json({
+        error: "Login failed",
+        supabase_error: error?.message || "No user returned",
+      });
     }
 
-    // Create our JWT
+    // Create JWT for your app
     const token = jwt.sign(
       { id: data.user.id, email: data.user.email },
       JWT_SECRET,
@@ -158,17 +206,36 @@ app.post("/api/login", async (req, res) => {
       .eq("id", data.user.id)
       .maybeSingle();
 
-    // Optional safety: if profile missing, create default
-    if (!profile && !perr) {
-      const { error: ierr } = await supabaseAdmin.from("profiles").insert([
-        {
-          id: data.user.id,
-          email: data.user.email,
-          role: "worker",
-          area: "General",
-        },
-      ]);
-      if (ierr) return res.status(400).json({ error: ierr.message });
+    if (perr) {
+      return res.status(400).json({
+        error: "Profile fetch failed",
+        supabase_error: perr.message,
+      });
+    }
+
+    // If profile missing, create default (safety)
+    let finalProfile = profile;
+    if (!finalProfile) {
+      const { error: ierr } = await supabaseAdmin
+        .from("profiles")
+        .upsert(
+          [
+            {
+              id: data.user.id,
+              email: data.user.email,
+              role: "worker",
+              area: "General",
+            },
+          ],
+          { onConflict: "id" }
+        );
+
+      if (ierr) {
+        return res.status(400).json({
+          error: "Profile auto-create failed",
+          supabase_error: ierr.message,
+        });
+      }
 
       const again = await supabaseAdmin
         .from("profiles")
@@ -176,32 +243,26 @@ app.post("/api/login", async (req, res) => {
         .eq("id", data.user.id)
         .maybeSingle();
 
-      return res.json({
-        token,
-        user: { id: data.user.id, email: data.user.email },
-        profile: again.data || null,
-      });
+      finalProfile = again.data || null;
     }
-
-    if (perr) return res.status(400).json({ error: perr.message });
 
     return res.json({
       token,
       user: { id: data.user.id, email: data.user.email },
-      profile: profile || null,
+      profile: finalProfile,
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
 });
 
-// ✅ Me (token validation)
+// Me
 app.get("/api/me", authMiddleware, (req, res) => {
   res.json({ id: req.user.id, email: req.user.email });
 });
 
-// ✅ Profile (frontend can call this instead of supabase direct)
-app.get("/api/profile", authMiddleware, async (req, res) => {
+// Profile
+app.get("/api/profile", authMiddleware, requireSupabase, async (req, res) => {
   const { data, error } = await supabaseAdmin
     .from("profiles")
     .select("role, area, email, id")
@@ -212,6 +273,11 @@ app.get("/api/profile", authMiddleware, async (req, res) => {
   if (!data) return res.status(404).json({ error: "Profile not found" });
 
   res.json(data);
+});
+
+// 404 JSON fallback
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found", path: req.originalUrl });
 });
 
 /* -------------------------
