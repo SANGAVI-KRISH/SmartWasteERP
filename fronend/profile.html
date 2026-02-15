@@ -34,6 +34,7 @@
 
     <!-- MAIN -->
     <main class="main">
+
       <!-- TOPBAR -->
       <div class="topbar">
         <div class="topbar-left">
@@ -41,18 +42,19 @@
           <p class="sub">View your details & change password</p>
         </div>
 
-        <div class="topbar-right">
-          <div class="profile-menu">
-            <img src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-                 id="profileBtn"
-                 class="profile-icon"
-                 alt="Profile">
+        <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+          <!-- Profile icon -> direct link (no dropdown) -->
+          <a href="profile.html" title="My Profile">
+            <img
+              src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+              class="profile-icon"
+              alt="Profile"
+              style="cursor:pointer;"
+            />
+          </a>
 
-            <div id="profileDropdown" class="profile-dropdown">
-              <a href="profile.html">👤 My Profile</a>
-              <a href="#" onclick="logout()">🚪 Logout</a>
-            </div>
-          </div>
+          <!-- Logout button -->
+          <button type="button" class="btn red" onclick="logout()">Logout</button>
         </div>
       </div>
 
@@ -109,20 +111,10 @@
 
   <script type="module" src="app.js"></script>
   <script type="module">
-    // Make sure only logged-in users can view
     protectPage(["admin","worker","driver","recycling_manager"]);
     applyRoleMenu();
-
-    // Profile dropdown
-    initProfileMenu();
-
-    // Load profile details
     loadProfile();
   </script>
-
-  <script>
-  initProfileMenu();
-</script>
 
 </body>
 </html>

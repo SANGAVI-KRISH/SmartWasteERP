@@ -38,27 +38,31 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR (same for all pages) -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Bin Status</h1>
-        <p class="sub" id="pageSub">Update bin fill level and monitor areas in real-time.</p>
+        <p class="sub" id="pageSub">
+          Update bin fill level and monitor areas in real-time.
+        </p>
       </div>
 
-      <div class="topbar-right">
-        <div class="profile-menu">
+      <!-- 🔴 FIXED PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+        
+        <!-- Direct profile page link -->
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
+        </a>
 
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        <!-- Logout button -->
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
+
       </div>
     </div>
 
@@ -94,8 +98,6 @@
 
     <!-- Table Card -->
     <div class="card" style="margin-top:14px;">
-
-      <!-- ✅ Simple header row (NO topbar inside card) -->
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Bin Updates</h2>
         <input id="searchBins" placeholder="Search bin/area/status..." oninput="renderBins()" />
@@ -126,9 +128,8 @@
 <script type="module" src="app.js"></script>
 
 <script type="module">
-  protectPage(["admin"]);   // change to ["admin","worker"] if needed
+  protectPage(["admin"]);
   applyRoleMenu();
-  initProfileMenu();
   renderBins();
 </script>
 

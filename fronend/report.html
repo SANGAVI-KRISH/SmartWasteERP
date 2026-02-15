@@ -38,31 +38,31 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Reports</h1>
         <p class="sub" id="pageSub">Auto-generated summary from Collection, Bin and Recycling data.</p>
       </div>
 
-      <div class="topbar-right" style="display:flex; align-items:center; gap:12px;">
+      <div class="topbar-right" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button type="button" class="btn" onclick="generateReport()">Refresh</button>
           <button type="button" class="btn" onclick="exportReportCSV()">Export CSV</button>
         </div>
 
-        <div class="profile-menu">
+        <!-- ✅ Profile icon direct link -->
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        </a>
+
+        <!-- ✅ Logout -->
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
       </div>
     </div>
 
@@ -99,8 +99,6 @@
 
     <!-- Breakdown + Chart -->
     <div class="card" style="margin-top:14px;">
-
-      <!-- ✅ Simple header row (NO nested topbar) -->
       <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:10px;">
         <div>
           <h2 style="margin:0;">Collected Waste by Type</h2>
@@ -108,7 +106,6 @@
         </div>
       </div>
 
-      <!-- Simple bar chart -->
       <div id="barChart" style="display:grid; gap:10px;"></div>
 
       <div style="height:12px;"></div>
@@ -142,10 +139,8 @@
 <script type="module">
   protectPage(["admin","worker"]);
   applyRoleMenu();
-  initProfileMenu();
   generateReport();
 </script>
-
 
 </body>
 </html>

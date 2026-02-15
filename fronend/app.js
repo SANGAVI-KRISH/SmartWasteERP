@@ -476,19 +476,30 @@ window.updateUser = async function(userId){
   loadUsers();
 };
 
+// ---------- PROFILE MENU (FINAL FIX) ----------
 window.initProfileMenu = function () {
   const btn = document.getElementById("profileBtn");
-  const dd = document.getElementById("profileDropdown");
-  if (!btn || !dd) return;
+  const menu = document.getElementById("profileDropdown");
+  if (!btn || !menu) return;
 
-  btn.addEventListener("click", () => {
-    dd.style.display = (dd.style.display === "block") ? "none" : "block";
+  // open dropdown
+  btn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    menu.style.display =
+      menu.style.display === "block" ? "none" : "block";
   });
 
-  document.addEventListener("click", (e) => {
-    if (!dd.contains(e.target) && e.target !== btn) dd.style.display = "none";
+  // close when clicking outside
+  document.addEventListener("click", function () {
+    menu.style.display = "none";
+  });
+
+  // IMPORTANT: allow clicking inside dropdown
+  menu.addEventListener("click", function (e) {
+    e.stopPropagation();
   });
 };
+
 
 window.loadProfile = async function () {
   try {

@@ -38,27 +38,25 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Waste Collection</h1>
         <p class="sub" id="pageSub">Add daily collection records and view them below.</p>
       </div>
 
-      <div class="topbar-right">
-        <div class="profile-menu">
+      <!-- ✅ FIXED PROFILE ICON (direct link) -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
+        </a>
 
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
       </div>
     </div>
 
@@ -97,8 +95,6 @@
 
     <!-- Saved Records -->
     <div class="card" style="margin-top:14px;">
-
-      <!-- ✅ Simple header row (NO topbar inside card) -->
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Saved Records</h2>
         <input id="searchCollections" placeholder="Search area/type/date..." oninput="renderCollections()">
@@ -128,10 +124,8 @@
 <script type="module">
   protectPage(["admin","worker"]);
   applyRoleMenu();
-  initProfileMenu();
   renderCollections();
 </script>
-
 
 </body>
 </html>

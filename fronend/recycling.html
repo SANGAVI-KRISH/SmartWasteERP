@@ -38,26 +38,31 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Recycling Management</h1>
-        <p class="sub" id="pageSub">Record how much waste was recycled vs sent to landfill.</p>
+        <p class="sub" id="pageSub">
+          Record how much waste was recycled vs sent to landfill.
+        </p>
       </div>
 
-      <div class="topbar-right">
-        <div class="profile-menu">
+      <!-- 🔴 FIXED PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+
+        <!-- Direct profile link -->
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        </a>
+
+        <!-- Logout button -->
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
+
       </div>
     </div>
 
@@ -107,8 +112,6 @@
 
     <!-- Table Card -->
     <div class="card" style="margin-top:14px;">
-
-      <!-- ✅ Simple header row (NO nested topbar) -->
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Recycling Records</h2>
         <input id="searchRecycling" placeholder="Search type/date..." oninput="renderRecycling()">
@@ -136,14 +139,11 @@
 <script type="module" src="app.js"></script>
 
 <script type="module">
-  protectPage(["admin"]);     // admin only (change if needed)
+  protectPage(["admin"]);
   applyRoleMenu();
-  initProfileMenu();
   renderRecycling();
   document.getElementById("rdate")?.focus();
 </script>
-
-
 
 </body>
 </html>

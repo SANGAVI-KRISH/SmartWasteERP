@@ -38,26 +38,25 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">My Assigned Tasks</h1>
         <p class="sub" id="pageSub">Pickup & Recycling workflow</p>
       </div>
 
-      <div class="topbar-right">
-        <div class="profile-menu">
+      <!-- ✅ FIXED PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        </a>
+
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
       </div>
     </div>
 
@@ -85,7 +84,6 @@
 <script type="module">
   protectPage(["admin","worker","driver","recycling_manager"]);
   applyRoleMenu();
-  initProfileMenu();
   loadMyTasks();
 </script>
 

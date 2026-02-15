@@ -424,3 +424,14 @@ select option{
   top: 45px;
   z-index: 9999;
 }
+
+.profile-menu {
+  position: relative;
+}
+
+.profile-dropdown {
+  position: absolute;
+  right: 0;
+  top: 50px;
+  z-index: 9999;
+}

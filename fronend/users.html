@@ -38,14 +38,16 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Users</h1>
         <p class="sub" id="pageSub">Admin can view and update user role/area.</p>
       </div>
 
-      <div class="topbar-right" style="display:flex; align-items:center; gap:12px;">
+      <!-- ✅ FIXED PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+
         <input
           id="searchUsers"
           placeholder="Search email/role/area..."
@@ -53,18 +55,19 @@
           style="max-width:260px;"
         />
 
-        <div class="profile-menu">
+        <!-- Direct Profile Link -->
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        </a>
+
+        <!-- Logout -->
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
+
       </div>
     </div>
 
@@ -98,7 +101,6 @@
 <script type="module">
   protectPage(["admin"]);
   applyRoleMenu();
-  initProfileMenu();
   loadUsers();
 </script>
 

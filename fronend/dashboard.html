@@ -39,26 +39,29 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Dashboard</h1>
         <p class="sub" id="pageSub">Live overview of collection, bins and recycling</p>
       </div>
 
-      <div class="topbar-right">
-        <div class="profile-menu">
+      <!-- ✅ FIXED PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+
+        <!-- Direct profile page link -->
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        </a>
+
+        <!-- Logout button -->
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
+
       </div>
     </div>
 
@@ -80,7 +83,7 @@
       </div>
     </div>
 
-    <!-- Trips KPI (moved INSIDE main) -->
+    <!-- Trips KPI -->
     <div class="card" style="margin-top:14px;">
       <div class="label">Trips Completed</div>
       <div class="value" id="kpiTripsCompleted">0</div>
@@ -102,16 +105,16 @@
 <script type="module" src="app.js"></script>
 
 <script type="module">
-  protectPage(["admin","worker"]);
+  protectPage(["admin","worker","driver","recycling_manager"]);
   applyRoleMenu();
-  initProfileMenu();
 
   const role = localStorage.getItem("role") || "user";
-  document.getElementById("roleBadge").textContent = "Role: " + role.toUpperCase();
+  const badge = document.getElementById("roleBadge");
+  if (badge) badge.textContent = "Role: " + role.toUpperCase();
 
   renderDashboard();
 
-  // Trips Completed KPI (if your app.js stores trips locally)
+  // Trips Completed KPI (if stored locally)
   try {
     const trips = JSON.parse(localStorage.getItem("trips")) || [];
     const done = trips.filter(t => t.status === "Completed").length;
@@ -119,14 +122,6 @@
     if (el) el.textContent = done;
   } catch {}
 </script>
-
-<script type="module">
-  protectPage(["admin"]);
-  applyRoleMenu();
-  initProfileMenu();
-  renderBins();
-</script>
-
 
 </body>
 </html>

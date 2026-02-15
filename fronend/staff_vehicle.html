@@ -38,26 +38,25 @@
   <!-- MAIN -->
   <main class="main">
 
-    <!-- ✅ STANDARD TOPBAR (same position everywhere) -->
+    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Staff & Vehicle Activity</h1>
         <p class="sub" id="pageSub">Log trips, assign routes, and track completion status.</p>
       </div>
 
-      <div class="topbar-right">
-        <div class="profile-menu">
+      <!-- ✅ FIXED PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-        </div>
+        </a>
+
+        <button type="button" class="btn red" onclick="logout()">Logout</button>
       </div>
     </div>
 
@@ -112,8 +111,6 @@
 
     <!-- Logs -->
     <div class="card" style="margin-top:14px;">
-
-      <!-- ✅ Simple header row (NO nested topbar) -->
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Activity Logs</h2>
         <input id="searchTrips" placeholder="Search vehicle/staff/route/status..." oninput="renderTrips()">
@@ -143,9 +140,8 @@
 <script type="module" src="app.js"></script>
 
 <script type="module">
-  protectPage(["admin"]);  // change if needed
+  protectPage(["admin"]);   // change if needed
   applyRoleMenu();
-  initProfileMenu();
   renderTrips();
 </script>
 
