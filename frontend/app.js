@@ -1,3 +1,5 @@
+import { API_URL } from "./config.js";
+
 import { supabase } from "./supabaseClient.js";
 
 /* =========================
@@ -17,76 +19,90 @@ window.toast = function(msg){
 /* =========================
    AUTH (Supabase)
 ========================= */
-window.signUp = async function(){
-  const role = $("role")?.value;
-  const area = $("area")?.value?.trim();
-  const email = $("email")?.value?.trim();
-  const password = $("password")?.value;
-  const confirm = $("confirmPassword")?.value;
-  const msg = $("msg");
+window.signUp = async function () {
+  const role = document.getElementById("role").value;
+  const area = document.getElementById("area").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const confirm = document.getElementById("confirmPassword").value;
+  const msg = document.getElementById("msg");
 
   if(!role || !area || !email || !password){
-    if(msg) msg.textContent = "Please fill all fields";
+    msg.textContent = "Fill all fields";
     return;
   }
+
   if(password !== confirm){
-    if(msg) msg.textContent = "Passwords do not match";
+    msg.textContent = "Passwords do not match";
     return;
   }
 
-  if(msg) msg.textContent = "Creating account...";
+  msg.textContent = "Creating account...";
 
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { role, area } }
-  });
+  try{
+    const res = await fetch(API_URL + "/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password, role, area })
+    });
 
-  if(error){
-    if(msg) msg.textContent = error.message;
-    return;
+    const data = await res.json();
+
+    if(!res.ok){
+      msg.textContent = data.error;
+      return;
+    }
+
+    msg.textContent = "Account created! Now login.";
+    setTimeout(()=> window.location="index.html",1500);
+
+  }catch{
+    msg.textContent = "Backend not reachable";
   }
-
-  if(msg) msg.textContent = "Account created ✅ Now login";
-  setTimeout(()=> window.location = "index.html", 1200);
 };
 
-window.signIn = async function(){
-  const email = $("email")?.value?.trim();
-  const password = $("password")?.value;
-  const msg = $("msg");
+window.signIn = async function () {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const msg = document.getElementById("msg");
 
   if(!email || !password){
-    if(msg) msg.textContent = "Enter email and password";
+    msg.textContent = "Enter email and password";
     return;
   }
 
-  if(msg) msg.textContent = "Logging in...";
+  msg.textContent = "Connecting to server...";
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  try{
+    const res = await fetch(API_URL + "/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    });
 
-  if(error){
-    if(msg) msg.textContent = error.message;
-    return;
+    const data = await res.json();
+
+    if(!res.ok){
+      msg.textContent = data.error || "Login failed";
+      return;
+    }
+
+    // store session
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("role", data.role);
+    localStorage.setItem("area", data.area);
+
+    window.location = "dashboard.html";
+
+  }catch(err){
+    msg.textContent = "Cannot reach server (backend sleeping or CORS)";
   }
-
-  // Read profile (role/area)
-  const { data: profile, error: perr } = await supabase
-    .from("profiles")
-    .select("role, area")
-    .eq("id", data.user.id)
-    .single();
-
-  if(perr || !profile){
-    if(msg) msg.textContent = "Profile missing. Contact admin.";
-    return;
-  }
-
-  localStorage.setItem("role", profile.role);
-  localStorage.setItem("area", profile.area);
-
-  window.location = "dashboard.html";
 };
+
 
 window.logout = async function(){
   try{ await supabase.auth.signOut(); }catch(e){}
@@ -94,19 +110,32 @@ window.logout = async function(){
   window.location = "index.html";
 };
 
-window.protectPage = async function(allowedRoles=[]){
-  const { data: { user } } = await supabase.auth.getUser();
-  if(!user){
+window.protectPage = async function () {
+
+  const token = localStorage.getItem("token");
+
+  if(!token){
     window.location = "index.html";
     return;
   }
 
-  const role = localStorage.getItem("role");
-  if(allowedRoles.length > 0 && !allowedRoles.includes(role)){
-    alert("Access denied for your role");
-    window.location = "dashboard.html";
+  try{
+    const res = await fetch(API_URL + "/me", {
+      headers: {
+        Authorization: "Bearer " + token
+      }
+    });
+
+    if(!res.ok){
+      localStorage.clear();
+      window.location = "index.html";
+    }
+
+  }catch{
+    window.location = "index.html";
   }
 };
+
 
 window.applyRoleMenu = function(){
   const role = localStorage.getItem("role");

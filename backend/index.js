@@ -3,6 +3,14 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
+const cors = require("cors");
+app.use(cors({
+  origin: "*",
+  methods: ["GET","POST","PUT","DELETE"],
+  allowedHeaders: ["Content-Type","Authorization"]
+}));
+
+
 dotenv.config();
 
 const app = express();
@@ -170,4 +178,24 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);
+});
+
+app.get("/me", async (req, res) => {
+
+  const token = req.headers.authorization?.split(" ")[1];
+
+  if(!token){
+    return res.status(401).json({ error: "No token" });
+  }
+
+  try{
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if(error) return res.status(401).json({ error: "Invalid session" });
+
+    res.json(data.user);
+
+  }catch{
+    res.status(401).json({ error: "Auth failed" });
+  }
 });
