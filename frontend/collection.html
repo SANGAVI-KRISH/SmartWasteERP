@@ -16,23 +16,17 @@
 
     <div class="nav">
       <a href="dashboard.html">🏠 Dashboard</a>
-
-      <!-- ADMIN -->
-      <a class="nav-admin" href="users.html">👥 Users</a>
-
-      <!-- WORKFLOW -->
-      <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
-
-      <a class="active" href="collection.html">🗑️ Collection</a>
+      <a href="users.html">👥 Users</a>
+      <a href="tasks.html">📋 My Tasks</a>
+      <a href="collection.html">🗑️ Collection</a>
       <a href="bins.html">🧺 Bin Status</a>
       <a href="recycling.html">♻️ Recycling</a>
-
-      <!-- MANAGEMENT -->
       <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
       <a href="report.html">📊 Reports</a>
+      <a href="map.html">📍 View Live Location</a>
     </div>
 
-    <button type="button" class="btn red" onclick="logout()">Logout</button>
+    <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
   <!-- MAIN -->
@@ -45,7 +39,7 @@
         <p class="sub" id="pageSub">Add daily collection records and view them below.</p>
       </div>
 
-      <!-- ✅ FIXED PROFILE ICON (direct link) -->
+      <!-- PROFILE + LOGOUT -->
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
         <a href="profile.html" title="My Profile">
           <img
@@ -56,7 +50,7 @@
           />
         </a>
 
-        <button type="button" class="btn red" onclick="logout()">Logout</button>
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
@@ -88,7 +82,7 @@
         </div>
 
         <div class="full">
-          <button type="button" class="btn" onclick="saveCollection()">Save Collection</button>
+          <button type="button" class="btn" id="saveCollectionBtn">Save Collection</button>
         </div>
       </div>
     </div>
@@ -97,7 +91,7 @@
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Saved Records</h2>
-        <input id="searchCollections" placeholder="Search area/type/date..." oninput="renderCollections()">
+        <input id="searchCollections" placeholder="Search area/type/date...">
       </div>
 
       <table class="table">
@@ -119,12 +113,35 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="app.js"></script>
+<!-- ✅ Load your app.js (module) -->
+<script type="module" src="./app.js"></script>
 
+<!-- ✅ Page specific bindings (NO imports) -->
 <script type="module">
-  protectPage(["admin","worker"]);
-  applyRoleMenu();
-  renderCollections();
+  document.addEventListener("DOMContentLoaded", async () => {
+
+    // Protect + role menu
+    await window.protectPage(["admin","worker"]);
+    window.applyRoleMenu();
+
+    // Initial load
+    await window.renderCollections();
+
+    // Save button
+    document.getElementById("saveCollectionBtn").addEventListener("click", async () => {
+      await window.saveCollection();
+      await window.renderCollections();
+    });
+
+    // Search
+    document.getElementById("searchCollections").addEventListener("input", () => {
+      window.renderCollections();
+    });
+
+    // Logout buttons
+    document.getElementById("logoutBtnTop").addEventListener("click", window.logout);
+    document.getElementById("logoutBtnSidebar").addEventListener("click", window.logout);
+  });
 </script>
 
 </body>

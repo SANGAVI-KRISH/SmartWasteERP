@@ -10,29 +10,23 @@
 <body>
 <div class="container">
 
-  <!-- SIDEBAR -->
+ <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
       <a href="dashboard.html">🏠 Dashboard</a>
-
-      <!-- ADMIN -->
-      <a class="nav-admin" href="users.html">👥 Users</a>
-
-      <!-- WORKFLOW -->
-      <a class="nav-worker" href="tasks.html">📋 My Tasks</a>
-
+      <a href="users.html">👥 Users</a>
+      <a href="tasks.html">📋 My Tasks</a>
       <a href="collection.html">🗑️ Collection</a>
       <a href="bins.html">🧺 Bin Status</a>
       <a href="recycling.html">♻️ Recycling</a>
-
-      <!-- MANAGEMENT -->
       <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a class="active" href="report.html">📊 Reports</a>
+      <a href="report.html">📊 Reports</a>
+      <a href="map.html">📍 View Live Location</a>
     </div>
 
-    <button type="button" class="btn red" onclick="logout()">Logout</button>
+    <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
   <!-- MAIN -->
@@ -47,11 +41,10 @@
 
       <div class="topbar-right" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button type="button" class="btn" onclick="generateReport()">Refresh</button>
-          <button type="button" class="btn" onclick="exportReportCSV()">Export CSV</button>
+          <button type="button" class="btn" id="refreshBtn">Refresh</button>
+          <button type="button" class="btn" id="exportBtn">Export CSV</button>
         </div>
 
-        <!-- ✅ Profile icon direct link -->
         <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
@@ -61,8 +54,7 @@
           />
         </a>
 
-        <!-- ✅ Logout -->
-        <button type="button" class="btn red" onclick="logout()">Logout</button>
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
@@ -97,7 +89,7 @@
       </div>
     </div>
 
-    <!-- Breakdown + Chart -->
+    <!-- Breakdown -->
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:10px;">
         <div>
@@ -106,6 +98,7 @@
         </div>
       </div>
 
+      <!-- Simple Bars -->
       <div id="barChart" style="display:grid; gap:10px;"></div>
 
       <div style="height:12px;"></div>
@@ -136,10 +129,18 @@
 
 <script type="module" src="app.js"></script>
 
-<script type="module">
-  protectPage(["admin","worker"]);
-  applyRoleMenu();
-  generateReport();
+<script>
+  // wait until app.js loads and registers window.* functions
+  window.addEventListener("DOMContentLoaded", async () => {
+    await window.protectPage(["admin","worker","driver","recycling_manager"]);
+    window.applyRoleMenu();
+
+    if (typeof window.generateReport === "function") {
+      window.generateReport();
+    } else {
+      console.error("generateReport() not found in app.js");
+    }
+  });
 </script>
 
 </body>
