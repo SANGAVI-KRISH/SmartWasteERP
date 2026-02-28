@@ -15,15 +15,29 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <a href="dashboard.html">🏠 Dashboard</a>
-      <a href="users.html">👥 Users</a>
-      <a href="tasks.html">📋 My Tasks</a>
-      <a href="collection.html">🗑️ Collection</a>
-      <a href="bins.html">🧺 Bin Status</a>
-      <a href="recycling.html">♻️ Recycling</a>
-      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a href="report.html">📊 Reports</a>
-      <a href="map.html">📍 View Live Location</a>
+      <!-- All roles -->
+      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+      <a class="nav-all" href="map.html">📍 View Live Location</a>
+
+      <!-- Admin only -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+
+      <!-- Worker + Driver + Admin -->
+      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <!-- Recycling Manager + Admin -->
+      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+
+      <!-- Complaints -->
+      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
@@ -36,10 +50,9 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Waste Collection</h1>
-        <p class="sub" id="pageSub">Add daily collection records and view them below.</p>
+        <p class="sub" id="pageSub">Add collection records. If work is completed, link the Pickup Task ID.</p>
       </div>
 
-      <!-- PROFILE + LOGOUT -->
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
         <a href="profile.html" title="My Profile">
           <img
@@ -56,6 +69,8 @@
 
     <!-- Form Card -->
     <div class="card">
+      <h2 style="margin-top:0;">New Collection Entry</h2>
+
       <div class="form">
         <div>
           <div class="label">Date</div>
@@ -78,11 +93,26 @@
 
         <div>
           <div class="label">Quantity (kg)</div>
-          <input type="number" id="qty" placeholder="Eg: 25">
+          <input type="number" id="qty" placeholder="Eg: 25" min="0" step="0.01">
+        </div>
+
+        <!-- ✅ Mandatory workflow support -->
+        <div>
+          <div class="label">Bin ID (optional)</div>
+          <input type="text" id="binId" placeholder="Eg: BIN-001">
         </div>
 
         <div class="full">
+          <div class="label">Pickup Task ID (Mandatory to complete task)</div>
+          <input type="text" id="taskId" placeholder="Paste pickup_tasks.id here (recommended)">
+          <div class="sub" style="margin-top:6px; opacity:.85;">
+            If you paste Task ID, this entry will be linked to the task and later the system can allow status = COLLECTED/COMPLETED.
+          </div>
+        </div>
+
+        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
           <button type="button" class="btn" id="saveCollectionBtn">Save Collection</button>
+          <button type="button" class="btn" id="goStaffVehicleBtn" style="opacity:.9;">Go to Staff & Vehicle</button>
         </div>
       </div>
     </div>
@@ -91,7 +121,7 @@
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Saved Records</h2>
-        <input id="searchCollections" placeholder="Search area/type/date...">
+        <input id="searchCollections" placeholder="Search area/type/date/task...">
       </div>
 
       <table class="table">
@@ -101,6 +131,8 @@
             <th>Area</th>
             <th>Type</th>
             <th>Qty (kg)</th>
+            <th>Bin</th>
+            <th>Task ID</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -113,34 +145,186 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ✅ Load your app.js (module) -->
+<!-- Shared app utilities -->
 <script type="module" src="./app.js"></script>
 
-<!-- ✅ Page specific bindings (NO imports) -->
 <script type="module">
-  document.addEventListener("DOMContentLoaded", async () => {
+  // ================================
+  // Helpers
+  // ================================
+  const $ = (id) => document.getElementById(id);
 
-    // Protect + role menu
-    await window.protectPage(["admin","worker"]);
-    window.applyRoleMenu();
+  function toast(msg, ok = true) {
+    const el = $("toast");
+    if (!el) return alert(msg);
+    el.textContent = msg;
+    el.classList.remove("show");
+    el.style.borderColor = ok ? "" : "rgba(255,80,80,.55)";
+    el.style.background = ok ? "" : "rgba(255,80,80,.12)";
+    setTimeout(() => el.classList.add("show"), 10);
+    setTimeout(() => el.classList.remove("show"), 2600);
+  }
 
-    // Initial load
-    await window.renderCollections();
+  function getSB() {
+    return window.supabase || window.sb || window._supabase || null;
+  }
 
-    // Save button
-    document.getElementById("saveCollectionBtn").addEventListener("click", async () => {
-      await window.saveCollection();
-      await window.renderCollections();
+  function todayISO() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
+  function required(v) {
+    return v != null && String(v).trim().length > 0;
+  }
+
+  // ================================
+  // CONFIG: Table name
+  // If your DB table is "collections" instead of "collection_records", change it here.
+  // ================================
+  const COLLECTION_TABLE = "collection_records";
+
+  // ================================
+  // CRUD
+  // ================================
+  async function saveCollection() {
+    const sb = getSB();
+    if (!sb) return toast("Supabase client not found (app.js must expose window.supabase)", false);
+
+    const date = $("date").value || todayISO();
+    const area = $("area").value.trim();
+    const waste_type = $("type").value;
+    const quantity_kg = Number($("qty").value);
+    const bin_id = $("binId").value.trim() || null;
+    const task_id = $("taskId").value.trim() || null;
+
+    if (!required(area)) return toast("Area is required.", false);
+    if (!Number.isFinite(quantity_kg) || quantity_kg < 0) return toast("Enter valid Quantity (>= 0).", false);
+
+    // user_id from session if your app.js stores it; otherwise DB policy might use auth.uid()
+    // We'll try to use auth.uid() through DB policy. But if your table requires user_id not null, we must set it.
+    const session = window.getSession?.() || JSON.parse(localStorage.getItem("cloudcrafter_session") || "null");
+    const user_id = session?.id || session?.user?.id || null;
+
+    const payload = {
+      date,
+      area,
+      waste_type,
+      quantity_kg,
+      bin_id,
+      task_id
+    };
+
+    // Only include user_id if you store it and column exists. (If column doesn't exist, Supabase will error)
+    // If your schema has user_id NOT NULL, uncomment next line:
+    // payload.user_id = user_id;
+
+    const { error } = await sb.from(COLLECTION_TABLE).insert(payload);
+    if (error) return toast(error.message, false);
+
+    toast("Collection saved ✅");
+    $("qty").value = "";
+    $("binId").value = "";
+    // keep taskId to make multiple entries easier
+    await renderCollections();
+  }
+
+  async function deleteCollection(id) {
+    const sb = getSB();
+    if (!sb) return toast("Supabase client not found", false);
+
+    const yes = confirm("Delete this record?");
+    if (!yes) return;
+
+    const { error } = await sb.from(COLLECTION_TABLE).delete().eq("id", id);
+    if (error) return toast(error.message, false);
+
+    toast("Deleted ✅");
+    await renderCollections();
+  }
+
+  async function renderCollections() {
+    const sb = getSB();
+    if (!sb) return;
+
+    const q = ($("searchCollections").value || "").trim().toLowerCase();
+
+    const { data, error } = await sb
+      .from(COLLECTION_TABLE)
+      .select("*")
+      .order("date", { ascending: false })
+      .limit(250);
+
+    if (error) return toast(error.message, false);
+
+    const rows = (data || []).filter((r) => {
+      if (!q) return true;
+      const hay = `${r.date || ""} ${r.area || ""} ${r.waste_type || ""} ${r.quantity_kg || ""} ${r.bin_id || ""} ${r.task_id || ""}`.toLowerCase();
+      return hay.includes(q);
     });
 
-    // Search
-    document.getElementById("searchCollections").addEventListener("input", () => {
-      window.renderCollections();
-    });
+    const body = $("collectionsBody");
+    body.innerHTML = "";
 
-    // Logout buttons
-    document.getElementById("logoutBtnTop").addEventListener("click", window.logout);
-    document.getElementById("logoutBtnSidebar").addEventListener("click", window.logout);
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="7" style="opacity:.8;">No records found.</td></tr>`;
+      return;
+    }
+
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.date ?? "-"}</td>
+        <td>${r.area ?? "-"}</td>
+        <td>${r.waste_type ?? "-"}</td>
+        <td>${r.quantity_kg ?? "-"}</td>
+        <td>${r.bin_id ?? "-"}</td>
+        <td style="max-width:260px; word-break:break-all;">${r.task_id ?? "-"}</td>
+        <td>
+          <button class="btn red" style="padding:6px 10px;" data-del="${r.id}">Delete</button>
+        </td>
+      `;
+      body.appendChild(tr);
+    }
+
+    body.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.addEventListener("click", () => deleteCollection(btn.getAttribute("data-del")));
+    });
+  }
+
+  // expose (optional)
+  window.renderCollections = renderCollections;
+
+  // ================================
+  // Init
+  // ================================
+  window.addEventListener("DOMContentLoaded", async () => {
+    // 1) hide menu immediately
+    window.applyRoleMenu?.();
+
+    // ✅ Allowed: admin, worker, driver (NOT recycling_manager)
+    const ok = await window.protectPage?.(["admin", "worker", "driver"]);
+    if (!ok) return;
+
+    window.setActiveNav?.();
+    window.initProfileMenu?.();
+
+    // Default date
+    if (!$("date").value) $("date").value = todayISO();
+
+    // Events
+    $("saveCollectionBtn").addEventListener("click", saveCollection);
+    $("goStaffVehicleBtn").addEventListener("click", () => (window.location.href = "staff_vehicle.html"));
+    $("searchCollections").addEventListener("input", renderCollections);
+
+    // Logout
+    $("logoutBtnTop").addEventListener("click", () => window.logout?.());
+    $("logoutBtnSidebar").addEventListener("click", () => window.logout?.());
+
+    // Render
+    await renderCollections();
   });
 </script>
 

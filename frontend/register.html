@@ -10,6 +10,7 @@
 <body class="auth-body">
   <div class="auth-wrap">
     <div class="auth-card">
+
       <div class="auth-header">
         <div class="logo">🧾</div>
         <div>
@@ -18,12 +19,20 @@
         </div>
       </div>
 
-      <!-- ✅ FORM ADDED -->
+      <!-- FORM -->
       <form id="registerForm" class="auth-grid">
 
+        <!-- FULL NAME (NEW) -->
+        <label class="field">
+          <span>Full Name</span>
+          <input id="full_name" name="full_name" required>
+        </label>
+
+        <!-- ROLE -->
         <label class="field">
           <span>Role</span>
-          <select id="role" required>
+          <select id="role" name="role" required>
+            <option value="">-- Select Role --</option>
             <option value="worker">Worker</option>
             <option value="driver">Driver</option>
             <option value="recycling_manager">Recycling Manager</option>
@@ -31,27 +40,30 @@
           </select>
         </label>
 
+        <!-- AREA -->
         <label class="field">
           <span>Area</span>
-          <input id="area" placeholder="Eg: Peelamedu" required>
+          <input id="area" name="area" placeholder="Eg: Peelamedu" required>
         </label>
 
+        <!-- EMAIL -->
         <label class="field">
           <span>Email</span>
-          <input type="email" id="email" placeholder="example@domain.com" autocomplete="email" required>
+          <input type="email" id="email" name="email" placeholder="example@domain.com" autocomplete="email" required>
         </label>
 
+        <!-- PASSWORD -->
         <label class="field">
           <span>Password</span>
-          <input type="password" id="password" placeholder="Create password" autocomplete="new-password" required>
+          <input type="password" id="password" name="password" placeholder="Create password" autocomplete="new-password" required>
         </label>
 
+        <!-- CONFIRM PASSWORD -->
         <label class="field">
           <span>Confirm Password</span>
-          <input type="password" id="confirmPassword" placeholder="Re-enter password" autocomplete="new-password" required>
+          <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Re-enter password" autocomplete="new-password" required>
         </label>
 
-        <!-- submit button (no onclick) -->
         <button type="submit" class="btn primary">Create Account</button>
 
         <p class="muted" style="margin:0;">
@@ -65,14 +77,102 @@
     </div>
   </div>
 
+  <!-- Load app.js FIRST -->
   <script type="module" src="app.js"></script>
 
-  <!-- ✅ Enter key + submit handling -->
+  <!-- Register page handler -->
   <script type="module">
-    const form = document.getElementById("registerForm");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      await signUp();   // calls window.signUp in app.js
+    window.addEventListener("DOMContentLoaded", () => {
+
+      const form = document.getElementById("registerForm");
+      const msg = document.getElementById("msg");
+
+      const full_name = document.getElementById("full_name");
+      const role = document.getElementById("role");
+      const area = document.getElementById("area");
+      const email = document.getElementById("email");
+      const password = document.getElementById("password");
+      const confirmPassword = document.getElementById("confirmPassword");
+
+      // Warn if opened via file://
+      if (location.protocol === "file:") {
+        alert("Open using Live Server (http://127.0.0.1:5500), not file:/// . Modules won't run.");
+      }
+
+      // Check if app.js loaded
+      setTimeout(() => {
+        if (typeof window.signUp !== "function") {
+          alert(
+            "Create Account is not working because app.js did not load OR crashed.\n\n" +
+            "Fix:\n" +
+            "1) Run using Live Server\n" +
+            "2) Open DevTools → Console to see error\n" +
+            "3) Check app.js, config.js, supabaseClient.js paths"
+          );
+        }
+      }, 400);
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        msg.textContent = "";
+
+        // VALIDATIONS
+        if (full_name.value.trim() === "") {
+          alert("Please enter your full name.");
+          full_name.focus();
+          return;
+        }
+
+        if (!role.value) {
+          alert("Please select a role.");
+          role.focus();
+          return;
+        }
+
+        if (area.value.trim() === "") {
+          alert("Please enter your area.");
+          area.focus();
+          return;
+        }
+
+        if (email.value.trim() === "") {
+          alert("Please enter your email.");
+          email.focus();
+          return;
+        }
+
+        if (!email.checkValidity()) {
+          alert("Enter a valid email address.");
+          email.focus();
+          return;
+        }
+
+        if (password.value === "") {
+          alert("Please create a password.");
+          password.focus();
+          return;
+        }
+
+        if (confirmPassword.value === "") {
+          alert("Please confirm password.");
+          confirmPassword.focus();
+          return;
+        }
+
+        if (password.value !== confirmPassword.value) {
+          alert("Passwords do not match!");
+          confirmPassword.focus();
+          return;
+        }
+
+        // Call signup
+        if (typeof window.signUp !== "function") {
+          alert("signUp() not found. app.js failed to load.");
+          return;
+        }
+
+        await window.signUp();
+      });
     });
   </script>
 

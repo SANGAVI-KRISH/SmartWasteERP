@@ -8,109 +8,169 @@
 </head>
 
 <body>
-  <div class="container">
-    <!-- SIDEBAR -->
+<div class="container">
+
+  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <a href="dashboard.html">🏠 Dashboard</a>
-      <a href="users.html">👥 Users</a>
-      <a href="tasks.html">📋 My Tasks</a>
-      <a href="collection.html">🗑️ Collection</a>
-      <a href="bins.html">🧺 Bin Status</a>
-      <a href="recycling.html">♻️ Recycling</a>
-      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a href="report.html">📊 Reports</a>
-      <a href="map.html">📍 View Live Location</a>
+      <!-- All roles -->
+      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+      <a class="nav-all" href="map.html">📍 View Live Location</a>
+
+      <!-- Admin only -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+
+      <!-- Worker + Driver + Admin -->
+      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <!-- Recycling Manager + Admin -->
+      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+
+      <!-- Complaints (optional) -->
+      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
-    <!-- MAIN -->
-    <main class="main">
+  <!-- MAIN -->
+  <main class="main">
 
-      <!-- TOPBAR -->
-      <div class="topbar">
-        <div class="topbar-left">
-          <h1>My Profile</h1>
-          <p class="sub">View your details & change password</p>
-        </div>
-
-        <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
-          <!-- Profile icon -> direct link (no dropdown) -->
-          <a href="profile.html" title="My Profile">
-            <img
-              src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-              class="profile-icon"
-              alt="Profile"
-              style="cursor:pointer;"
-            />
-          </a>
-
-          <!-- Logout button -->
-          <button type="button" class="btn red" onclick="logout()">Logout</button>
-        </div>
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>My Profile</h1>
+        <p class="sub">View your details & change password</p>
       </div>
 
-      <!-- PROFILE CARD -->
-      <div class="card">
-        <h2>Account Details</h2>
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+        <a href="profile.html" title="My Profile">
+          <img
+            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+            class="profile-icon"
+            alt="Profile"
+            style="cursor:pointer;"
+          />
+        </a>
 
-        <div class="form" style="margin-top:12px;">
-          <div class="full">
-            <label class="field">
-              <span>Email</span>
-              <input id="profileEmail" disabled />
-            </label>
-          </div>
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
+      </div>
+    </div>
 
+    <!-- PROFILE CARD -->
+    <div class="card">
+      <h2>Account Details</h2>
+
+      <div class="form" style="margin-top:12px;">
+
+        <div class="full">
           <label class="field">
-            <span>Role</span>
-            <input id="profileRole" disabled />
+            <span>Full Name</span>
+            <input id="profileName" disabled />
           </label>
+        </div>
 
+        <div class="full">
           <label class="field">
-            <span>Area</span>
-            <input id="profileArea" disabled />
+            <span>Email</span>
+            <input id="profileEmail" disabled />
           </label>
         </div>
+
+        <label class="field">
+          <span>Role</span>
+          <input id="profileRole" disabled />
+        </label>
+
+        <label class="field">
+          <span>Area</span>
+          <input id="profileArea" disabled />
+        </label>
       </div>
+    </div>
 
-      <!-- CHANGE PASSWORD -->
-      <div class="card" style="margin-top:14px;">
-        <h2>Change Password</h2>
-        <p class="sub">Enter a new password and update</p>
+    <!-- CHANGE PASSWORD -->
+    <div class="card" style="margin-top:14px;">
+      <h2>Change Password</h2>
+      <p class="sub">Enter a new password and update</p>
 
-        <div class="form">
-          <label class="field full">
-            <span>New Password</span>
-            <input type="password" id="newPassword" placeholder="Enter new password" />
-          </label>
+      <div class="form">
+        <label class="field full">
+          <span>New Password</span>
+          <input type="password" id="newPassword" placeholder="Enter new password" />
+        </label>
 
-          <label class="field full">
-            <span>Confirm New Password</span>
-            <input type="password" id="confirmNewPassword" placeholder="Re-enter new password" />
-          </label>
+        <label class="field full">
+          <span>Confirm New Password</span>
+          <input type="password" id="confirmNewPassword" placeholder="Re-enter new password" />
+        </label>
 
-          <div class="full" style="display:flex; gap:10px; align-items:center;">
-            <button class="btn primary" type="button" onclick="changePassword()">Update Password</button>
-            <span id="msg" class="error"></span>
-          </div>
+        <div class="full" style="display:flex; gap:10px; align-items:center;">
+          <button class="btn primary" type="button" id="updatePasswordBtn">Update Password</button>
+          <span id="msg" class="error"></span>
         </div>
       </div>
+    </div>
 
-      <div class="toast" id="toast"></div>
-    </main>
-  </div>
+  </main>
+</div>
 
-  <script type="module" src="app.js"></script>
-  <script type="module">
-    protectPage(["admin","worker","driver","recycling_manager"]);
-    applyRoleMenu();
-    loadProfile();
-  </script>
+<div class="toast" id="toast"></div>
+
+<!-- app.js -->
+<script type="module" src="app.js"></script>
+
+<!-- page init -->
+<script type="module">
+  window.addEventListener("DOMContentLoaded", async () => {
+    // 1) Hide menu immediately
+    window.applyRoleMenu?.();
+
+    // ✅ Profile allowed for all roles
+    const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
+    if (!ok) return;
+
+    window.setActiveNav?.();
+
+    // Load profile data
+    await window.loadProfile?.();
+
+    // Logout buttons
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
+
+    // Change password (with confirm check)
+    document.getElementById("updatePasswordBtn")?.addEventListener("click", async () => {
+      const np = document.getElementById("newPassword")?.value || "";
+      const cp = document.getElementById("confirmNewPassword")?.value || "";
+      const msg = document.getElementById("msg");
+
+      if (!np || np.length < 6) {
+        if (msg) msg.textContent = "Password must be at least 6 characters";
+        window.toast?.("Password must be at least 6 characters");
+        return;
+      }
+      if (np !== cp) {
+        if (msg) msg.textContent = "Passwords do not match";
+        window.toast?.("Passwords do not match");
+        return;
+      }
+
+      if (msg) msg.textContent = "";
+      await window.changePassword?.();
+    });
+  });
+</script>
 
 </body>
 </html>

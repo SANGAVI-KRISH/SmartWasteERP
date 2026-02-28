@@ -10,20 +10,34 @@
 <body>
 <div class="container">
 
- <!-- SIDEBAR -->
+  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <a href="dashboard.html">🏠 Dashboard</a>
-      <a href="users.html">👥 Users</a>
-      <a href="tasks.html">📋 My Tasks</a>
-      <a href="collection.html">🗑️ Collection</a>
-      <a href="bins.html">🧺 Bin Status</a>
-      <a href="recycling.html">♻️ Recycling</a>
-      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a href="report.html">📊 Reports</a>
-      <a href="map.html">📍 View Live Location</a>
+      <!-- All roles -->
+      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+      <a class="nav-all" href="map.html">📍 View Live Location</a>
+
+      <!-- Admin only -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+
+      <!-- Worker + Driver + Admin -->
+      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <!-- Recycling Manager + Admin -->
+      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+
+      <!-- Complaints -->
+      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
@@ -127,19 +141,253 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Global app.js (auth/menu utilities) -->
 <script type="module" src="app.js"></script>
 
-<script>
-  // wait until app.js loads and registers window.* functions
-  window.addEventListener("DOMContentLoaded", async () => {
-    await window.protectPage(["admin","worker","driver","recycling_manager"]);
-    window.applyRoleMenu();
+<!-- Reports engine -->
+<script type="module">
+  const getSupabase = async () => {
+    if (window.supabase) return window.supabase;
+    throw new Error("Supabase client not found. Ensure app.js sets window.supabase");
+  };
 
-    if (typeof window.generateReport === "function") {
-      window.generateReport();
-    } else {
-      console.error("generateReport() not found in app.js");
+  const fmtKg = (n) => `${Math.round(Number(n) || 0)} kg`;
+
+  // Normalize waste type
+  function normType(t) {
+    const s = String(t || "").trim().toLowerCase();
+    if (!s) return "unknown";
+    if (s.includes("wet")) return "wet";
+    if (s.includes("dry")) return "dry";
+    if (s.includes("plastic")) return "plastic";
+    return s;
+  }
+
+  function isBinFull(b) {
+    const s = String(b.status || "").toLowerCase();
+    return s.includes("full") || s.includes("overflow") || s.includes("100");
+  }
+
+  // Render bars
+  function renderBars(typeTotals) {
+    const barChart = document.getElementById("barChart");
+    barChart.innerHTML = "";
+
+    const entries = Object.entries(typeTotals);
+    const maxVal = Math.max(1, ...entries.map(([, v]) => v));
+
+    entries.forEach(([type, val]) => {
+      const pct = Math.round((val / maxVal) * 100);
+
+      const row = document.createElement("div");
+      row.style.display = "grid";
+      row.style.gridTemplateColumns = "120px 1fr 80px";
+      row.style.alignItems = "center";
+      row.style.gap = "10px";
+
+      const label = document.createElement("div");
+      label.textContent = type.toUpperCase();
+
+      const barWrap = document.createElement("div");
+      barWrap.style.height = "12px";
+      barWrap.style.borderRadius = "999px";
+      barWrap.style.background = "rgba(255,255,255,0.08)";
+      barWrap.style.overflow = "hidden";
+
+      const bar = document.createElement("div");
+      bar.style.height = "100%";
+      bar.style.width = pct + "%";
+      bar.style.borderRadius = "999px";
+      bar.style.background = "rgba(90, 152, 255, 0.9)";
+
+      barWrap.appendChild(bar);
+
+      const value = document.createElement("div");
+      value.style.textAlign = "right";
+      value.textContent = fmtKg(val);
+
+      row.appendChild(label);
+      row.appendChild(barWrap);
+      row.appendChild(value);
+
+      barChart.appendChild(row);
+    });
+  }
+
+  // Render type breakdown table
+  function renderTypeTable(typeTotals) {
+    const body = document.getElementById("typeBreakdownBody");
+    body.innerHTML = "";
+
+    const entries = Object.entries(typeTotals).sort((a, b) => b[1] - a[1]);
+
+    if (!entries.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>(no data)</td><td></td>`;
+      body.appendChild(tr);
+      return;
     }
+
+    entries.forEach(([type, val]) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${type.toUpperCase()}</td><td>${fmtKg(val)}</td>`;
+      body.appendChild(tr);
+    });
+  }
+
+  // ✅ Main report function
+  async function generateReport() {
+    const supabase = await getSupabase();
+
+    // ✅ FIXED TABLE NAMES (from your app.js)
+    const [{ data: collection, error: cErr },
+           { data: bins, error: bErr },
+           { data: recycling, error: rErr }] = await Promise.all([
+      supabase.from("collection_records").select("waste_type, quantity_kg"),
+      supabase.from("bins").select("status"),
+      supabase.from("recycling").select("waste_type, input_kg, recycled_kg, landfill_kg"),
+    ]);
+
+    if (cErr) throw cErr;
+    if (bErr) throw bErr;
+    if (rErr) throw rErr;
+
+    // ✅ TOTALS
+    const totalCollected = (collection || []).reduce((sum, r) => sum + (Number(r.quantity_kg) || 0), 0);
+    const totalRecycled = (recycling || []).reduce((sum, r) => sum + (Number(r.recycled_kg) || 0), 0);
+
+    // Use landfill_kg from table if available, else collected - recycled
+    const landfillFromTable = (recycling || []).reduce((sum, r) => sum + (Number(r.landfill_kg) || 0), 0);
+    const landfill = landfillFromTable > 0 ? landfillFromTable : Math.max(0, totalCollected - totalRecycled);
+
+    const fullBins = (bins || []).filter(isBinFull).length;
+
+    // ✅ TYPE TOTALS (from collection_records)
+    const typeTotals = { wet: 0, dry: 0, plastic: 0 };
+    (collection || []).forEach(r => {
+      const t = normType(r.waste_type);
+      const w = Number(r.quantity_kg) || 0;
+      if (!typeTotals[t]) typeTotals[t] = 0;
+      typeTotals[t] += w;
+    });
+
+    // ✅ UPDATE KPIs
+    document.getElementById("kpiTotalCollected").textContent = fmtKg(totalCollected);
+    document.getElementById("kpiTotalRecycled").textContent = fmtKg(totalRecycled);
+    document.getElementById("kpiTotalLandfill").textContent = fmtKg(landfill);
+
+    document.getElementById("kpiFullBins").textContent = String(fullBins);
+    document.getElementById("kpiCollectionCount").textContent = String((collection || []).length);
+    document.getElementById("kpiRecyclingCount").textContent = String((recycling || []).length);
+
+    // ✅ RENDER BREAKDOWN
+    renderBars(typeTotals);
+    renderTypeTable(typeTotals);
+
+    // ✅ INSIGHT
+    const rate = totalCollected > 0 ? ((totalRecycled / totalCollected) * 100).toFixed(1) : "0.0";
+    let msg = `Recycling Efficiency: ${rate}% of collected waste is recycled. `;
+
+    if (fullBins > 0) msg += `Priority Alert: ${fullBins} bin(s) are FULL and need pickup. `;
+    msg += `Landfill waste: ${fmtKg(landfill)}.`;
+
+    document.getElementById("insightText").textContent = msg.trim();
+  }
+
+  // CSV export helpers
+  function csvEscape(v) {
+    const s = String(v ?? "");
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+
+  function downloadCSV(filename, rows) {
+    const csv = rows.map(r => r.map(csvEscape).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function collectTypeTableRows() {
+    const rows = [];
+    document.querySelectorAll("#typeBreakdownBody tr").forEach(tr => {
+      const tds = tr.querySelectorAll("td");
+      if (tds.length >= 2) rows.push([tds[0].textContent, tds[1].textContent]);
+    });
+    return rows;
+  }
+
+  // expose globally
+  window.generateReport = generateReport;
+
+  window.addEventListener("DOMContentLoaded", async () => {
+    window.applyRoleMenu?.();
+
+    const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
+    if (!ok) return;
+
+    window.setActiveNav?.();
+
+    // logout buttons
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
+
+    // refresh button
+    document.getElementById("refreshBtn")?.addEventListener("click", async () => {
+      try {
+        await generateReport();
+        window.toast?.("Report updated");
+      } catch (e) {
+        console.error(e);
+        window.toast?.(e.message || "Failed to load report");
+      }
+    });
+
+    // export csv
+    document.getElementById("exportBtn")?.addEventListener("click", () => {
+      const now = new Date();
+      const filename = `smart_waste_report_${now.toISOString().slice(0,10)}.csv`;
+
+      const rows = [];
+
+      rows.push(["KPI", "Value"]);
+      rows.push(["Total Collected", document.getElementById("kpiTotalCollected")?.textContent || ""]);
+      rows.push(["Total Recycled", document.getElementById("kpiTotalRecycled")?.textContent || ""]);
+      rows.push(["Sent to Landfill", document.getElementById("kpiTotalLandfill")?.textContent || ""]);
+      rows.push(["Full Bins", document.getElementById("kpiFullBins")?.textContent || ""]);
+      rows.push(["Collection Records", document.getElementById("kpiCollectionCount")?.textContent || ""]);
+      rows.push(["Recycling Records", document.getElementById("kpiRecyclingCount")?.textContent || ""]);
+      rows.push([]);
+
+      rows.push(["Waste Type", "Total Collected (kg)"]);
+      const typeRows = collectTypeTableRows();
+      if (typeRows.length) rows.push(...typeRows);
+      else rows.push(["(no data)", ""]);
+
+      rows.push([]);
+      rows.push(["Insight", document.getElementById("insightText")?.textContent || ""]);
+
+      downloadCSV(filename, rows);
+    });
+
+    // auto run on load
+    try {
+      await generateReport();
+    } catch (e) {
+      console.error(e);
+      window.toast?.(e.message || "Failed to load report");
+    }
+
+    // auto refresh every 20 seconds
+    setInterval(async () => {
+      try { await generateReport(); } catch {}
+    }, 20000);
   });
 </script>
 

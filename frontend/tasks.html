@@ -15,15 +15,29 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <a href="dashboard.html">🏠 Dashboard</a>
-      <a href="users.html">👥 Users</a>
-      <a href="tasks.html">📋 My Tasks</a>
-      <a href="collection.html">🗑️ Collection</a>
-      <a href="bins.html">🧺 Bin Status</a>
-      <a href="recycling.html">♻️ Recycling</a>
-      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a href="report.html">📊 Reports</a>
-      <a href="map.html">📍 View Live Location</a>
+      <!-- All roles -->
+      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+      <a class="nav-all" href="map.html">📍 View Live Location</a>
+
+      <!-- Admin only -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+
+      <!-- Worker + Driver + Admin -->
+      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <!-- Recycling Manager + Admin -->
+      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+
+      <!-- Complaints -->
+      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
@@ -36,10 +50,9 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">My Assigned Tasks</h1>
-        <p class="sub" id="pageSub">Pickup & Recycling workflow</p>
+        <p class="sub" id="pageSub">Pickup tasks + Trip tasks (Staff & Vehicle)</p>
       </div>
 
-      <!-- ✅ FIXED PROFILE ICON -->
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
         <a href="profile.html" title="My Profile">
           <img
@@ -50,23 +63,40 @@
           />
         </a>
 
-        <button type="button" class="btn red" onclick="logout()">Logout</button>
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
     <!-- TASK TABLE -->
     <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+        <h2 style="margin:0;">Tasks</h2>
+
+        <div style="display:flex; gap:10px; align-items:center;">
+          <input id="searchTasks" placeholder="Search bin/area/vehicle/route/status..." style="min-width:240px;" />
+          <button type="button" class="btn" id="refreshTasksBtn">Refresh</button>
+        </div>
+      </div>
+
       <table class="table">
         <thead>
           <tr>
-            <th>Bin</th>
-            <th>Area</th>
+            <th>Task</th>
+            <th>Details</th>
+            <th>Task ID</th>
             <th>Status</th>
             <th>Action</th>
           </tr>
         </thead>
-        <tbody id="tasksBody"></tbody>
+        <tbody id="tasksBody">
+          <tr><td colspan="5" style="opacity:.8;">Loading...</td></tr>
+        </tbody>
       </table>
+
+      <p class="sub" style="margin-bottom:0;">
+        Tip: For <b>Pickup</b> flow, copy the <b>Task ID</b> from the Bin row (pickup_tasks.id) and paste it in
+        <b>Collection</b> as Task ID. For <b>Trip</b> flow, click Started then Completed → it will redirect to Collection automatically.
+      </p>
     </div>
 
   </main>
@@ -74,11 +104,186 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- load app.js (must expose window.supabase + window.toast + window.updateStaffTaskStatus etc.) -->
 <script type="module" src="app.js"></script>
+
 <script type="module">
-  protectPage(["admin","worker","driver","recycling_manager"]);
-  applyRoleMenu();
-  loadMyTasks();
+  const $ = (id) => document.getElementById(id);
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  async function copyToClipboard(text) {
+    const t = String(text || "");
+    if (!t) return;
+    try {
+      await navigator.clipboard.writeText(t);
+      window.toast?.("Copied ✅");
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = t;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      window.toast?.("Copied ✅");
+    }
+  }
+
+  // ✅ Wrapper to ensure UI refresh happens after status update
+  window.__tripStart = async (id) => {
+    await window.updateStaffTaskStatus?.(id, "Started");
+    // If app.js doesn't re-render tasks automatically, we refresh here
+    await renderMyTasksTable();
+  };
+
+  window.__tripComplete = async (id) => {
+    await window.updateStaffTaskStatus?.(id, "Completed");
+    // updateStaffTaskStatus in app.js already redirects to collection.html?staff_task_id=...
+    // No need to render again; but safe:
+    // await renderMyTasksTable();
+  };
+
+  // ✅ Render tasks (pickup_tasks + staff_tasks)
+  async function renderMyTasksTable() {
+    const tbody = $("tasksBody");
+    if (!tbody) return;
+
+    const q = ($("searchTasks")?.value || "").toLowerCase().trim();
+    const role = (localStorage.getItem("role") || "").toLowerCase();
+    const userId = localStorage.getItem("user_id");
+
+    const sb = window.supabase;
+    if (!sb) {
+      tbody.innerHTML = `<tr><td colspan="5" style="opacity:.85;">Supabase not found. app.js must set window.supabase</td></tr>`;
+      return;
+    }
+
+    // --- Pickup tasks ---
+    let pickupQuery = sb
+      .from("pickup_tasks")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (role === "worker" || role === "driver") {
+      pickupQuery = pickupQuery.or(`assigned_worker_id.eq.${userId},assigned_driver_id.eq.${userId}`);
+    }
+
+    const { data: pickup, error: pErr } = await pickupQuery;
+    if (pErr) {
+      tbody.innerHTML = `<tr><td colspan="5" style="opacity:.85;">${escapeHtml(pErr.message)}</td></tr>`;
+      return;
+    }
+
+    // --- Trip tasks ---
+    let staffQuery = sb
+      .from("staff_tasks")
+      .select("id,task_type,date,vehicle_id,route,shift,status,created_at,assigned_to")
+      .order("created_at", { ascending: false });
+
+    if (role !== "admin") staffQuery = staffQuery.eq("assigned_to", userId);
+
+    const { data: staffTasks, error: sErr } = await staffQuery;
+    if (sErr) console.log("staff_tasks fetch error:", sErr);
+
+    // Map pickup rows (use existing app.js action buttons if available)
+    const pickupRows = (pickup || []).map(t => {
+      const taskLabel = `Bin: ${t.bin_id || "-"}`;
+      const details = `Area: ${t.area || "-"}`;
+      const status = t.status || "-";
+      const taskId = t.id || "";
+      const action = (window.pickupActionButton)
+        ? window.pickupActionButton(t, role)
+        : "-";
+      return { taskLabel, details, taskId, status, action };
+    });
+
+    // Map trip rows (FORCE proper button flow)
+    const tripRows = (staffTasks || [])
+      .filter(t => (t.task_type || "").toUpperCase() === "TRIP")
+      .map(t => {
+        const taskLabel = `Trip: ${t.vehicle_id || "-"}`;
+        const details = `${t.route || "-"} | ${t.shift || "-"} | ${t.date || "-"}`;
+        const status = t.status || "-";
+        const taskId = t.id || "";
+
+        let action = "-";
+        if (role !== "admin") {
+          if (status === "Assigned") {
+            action = `<button class="btn" onclick="__tripStart('${t.id}')">Work Started</button>`;
+          } else if (status === "Started") {
+            action = `<button class="btn" onclick="__tripComplete('${t.id}')">Work Completed</button>`;
+          } else {
+            action = "✅ Done";
+          }
+        }
+
+        return { taskLabel, details, taskId, status, action };
+      });
+
+    // Combine
+    let rows = [...tripRows, ...pickupRows];
+
+    // Filter
+    if (q) {
+      rows = rows.filter(r => {
+        const blob = `${r.taskLabel} ${r.details} ${r.taskId} ${r.status}`.toLowerCase();
+        return blob.includes(q);
+      });
+    }
+
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="opacity:.8;">No tasks found.</td></tr>`;
+      return;
+    }
+
+    // Render rows
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.taskLabel)}</td>
+        <td>${escapeHtml(r.details)}</td>
+        <td style="max-width:320px; word-break:break-all;">
+          <span>${escapeHtml(r.taskId)}</span>
+          ${r.taskId ? `<button class="btn" style="margin-left:8px; padding:6px 10px;" data-copy="${escapeHtml(r.taskId)}">Copy</button>` : ""}
+        </td>
+        <td>${escapeHtml(r.status)}</td>
+        <td>${r.action || "-"}</td>
+      </tr>
+    `).join("");
+
+    // copy binding
+    tbody.querySelectorAll("[data-copy]").forEach(btn => {
+      btn.addEventListener("click", () => copyToClipboard(btn.getAttribute("data-copy")));
+    });
+  }
+
+  window.addEventListener("DOMContentLoaded", async () => {
+    window.applyRoleMenu?.();
+
+    const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
+    if (!ok) return;
+
+    window.setActiveNav?.();
+    window.initProfileMenu?.();
+
+    await renderMyTasksTable();
+
+    $("searchTasks")?.addEventListener("input", () => renderMyTasksTable());
+
+    $("refreshTasksBtn")?.addEventListener("click", async () => {
+      await renderMyTasksTable();
+      window.toast?.("Refreshed ✅");
+    });
+
+    $("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
+    $("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
+  });
 </script>
 
 </body>

@@ -15,15 +15,29 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <a href="dashboard.html">🏠 Dashboard</a>
-      <a href="users.html">👥 Users</a>
-      <a href="tasks.html">📋 My Tasks</a>
-      <a href="collection.html">🗑️ Collection</a>
-      <a href="bins.html">🧺 Bin Status</a>
-      <a href="recycling.html">♻️ Recycling</a>
-      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a href="report.html">📊 Reports</a>
-      <a href="map.html">📍 View Live Location</a>
+      <!-- All roles -->
+      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+      <a class="nav-all" href="map.html">📍 View Live Location</a>
+
+      <!-- Admin only -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+
+      <!-- Worker + Driver + Admin -->
+      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <!-- Recycling Manager + Admin -->
+      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+
+      <!-- Complaints (optional) -->
+      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
@@ -41,10 +55,7 @@
         </p>
       </div>
 
-      <!-- 🔴 FIXED PROFILE ICON -->
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
-
-        <!-- Direct profile link -->
         <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
@@ -53,10 +64,7 @@
             style="cursor:pointer;"
           />
         </a>
-
-        <!-- Logout button -->
-        <button type="button" class="btn red" onclick="logout()">Logout</button>
-
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
@@ -95,7 +103,7 @@
         </div>
 
         <div class="full">
-          <button type="button" class="btn" onclick="saveRecycle()">Save Entry</button>
+          <button type="button" class="btn" id="saveRecycleBtn">Save Entry</button>
         </div>
       </div>
 
@@ -108,7 +116,7 @@
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Recycling Records</h2>
-        <input id="searchRecycling" placeholder="Search type/date..." oninput="renderRecycling()">
+        <input id="searchRecycling" placeholder="Search type/date...">
       </div>
 
       <table class="table">
@@ -130,15 +138,36 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Main App -->
 <script type="module" src="app.js"></script>
 
+<!-- PAGE INIT -->
 <script type="module">
-  protectPage(["admin"]);
-  applyRoleMenu();
-  renderRecycling();
-  document.getElementById("rdate")?.focus();
-</script>
+  window.addEventListener("DOMContentLoaded", async () => {
+    // 1) Hide menu immediately
+    window.applyRoleMenu?.();
 
+    // 🔐 Only Admin + Recycling Manager
+    const ok = await window.protectPage?.(["admin", "recycling_manager"]);
+    if (!ok) return;
+
+    window.setActiveNav?.();
+    window.initProfileMenu?.();
+
+    // Load records + wire events (app.js also auto-wires, but this keeps it safe)
+    await window.renderRecycling?.();
+
+    
+
+    document.getElementById("searchRecycling")?.addEventListener("input", () => {
+      window.renderRecycling?.();
+    });
+
+    // Logout
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
+  });
+</script>
 
 </body>
 </html>

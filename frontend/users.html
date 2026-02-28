@@ -15,15 +15,29 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <a href="dashboard.html">🏠 Dashboard</a>
-      <a href="users.html">👥 Users</a>
-      <a href="tasks.html">📋 My Tasks</a>
-      <a href="collection.html">🗑️ Collection</a>
-      <a href="bins.html">🧺 Bin Status</a>
-      <a href="recycling.html">♻️ Recycling</a>
-      <a href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a href="report.html">📊 Reports</a>
-      <a href="map.html">📍 View Live Location</a>
+      <!-- All roles -->
+      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+      <a class="nav-all" href="map.html">📍 View Live Location</a>
+
+      <!-- Admin only -->
+      <a class="nav-admin" href="users.html">👥 Users</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+
+      <!-- Worker + Driver + Admin -->
+      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <!-- Recycling Manager + Admin -->
+      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+
+      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+
+      <!-- Complaints (optional) -->
+      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
@@ -39,17 +53,14 @@
         <p class="sub" id="pageSub">Admin can view and update user role/area.</p>
       </div>
 
-      <!-- ✅ FIXED PROFILE ICON -->
       <div class="topbar-right" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
 
         <input
           id="searchUsers"
           placeholder="Search email/role/area..."
-          oninput="renderUsers()"
           style="max-width:260px;"
         />
 
-        <!-- Direct Profile Link -->
         <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
@@ -59,9 +70,7 @@
           />
         </a>
 
-        <!-- Logout -->
-        <button type="button" class="btn red" onclick="logout()">Logout</button>
-
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
@@ -91,11 +100,34 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- app.js -->
 <script type="module" src="app.js"></script>
+
+<!-- page init -->
 <script type="module">
-  protectPage(["admin"]);
-  applyRoleMenu();
-  loadUsers();
+  window.addEventListener("DOMContentLoaded", async () => {
+    // 1) Hide menu immediately
+    window.applyRoleMenu?.();
+
+    // ✅ Admin only
+    const ok = await window.protectPage?.(["admin"]);
+    if (!ok) return;
+
+    window.setActiveNav?.();
+    window.initProfileMenu?.();
+
+    // Load users
+    await window.loadUsers?.();
+
+    // Search filter
+    document.getElementById("searchUsers")?.addEventListener("input", () => {
+      window.renderUsers?.();
+    });
+
+    // Logout buttons
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
+  });
 </script>
 
 </body>

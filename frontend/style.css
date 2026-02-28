@@ -13,12 +13,25 @@
   --bad:#ef4444;
 
   --border:rgba(255,255,255,.10);
+
+  /* Added for dropdown */
+  --field-bg: rgba(255,255,255,.05);
+  --field-bg-strong: #0f172a; /* dropdown list bg */
+  --field-border: rgba(255,255,255,.10);
 }
 
 /* ===================== GLOBAL ===================== */
 *{
   box-sizing:border-box;
-  transition: all .25s ease;
+
+  /* Avoid transition: all; it can cause weird behavior on native controls */
+  transition:
+    background-color .25s ease,
+    border-color .25s ease,
+    box-shadow .25s ease,
+    color .25s ease,
+    transform .25s ease,
+    opacity .25s ease;
 }
 
 body{
@@ -167,20 +180,48 @@ input, select{
   width:100%;
   padding:12px;
   border-radius:14px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.05);
+  border:1px solid var(--field-border);
+  background:var(--field-bg);
   color:var(--text);
   outline:none;
 }
 
+/* Placeholder */
 input::placeholder{
   color:rgba(241,246,255,.5);
 }
 
+/* Focus state */
 input:focus, select:focus{
   border-color:rgba(79,140,255,.6);
   box-shadow:0 0 0 4px rgba(79,140,255,.2);
 }
+
+/* ===================== SELECT DROPDOWN FIX ===================== */
+/* This makes the OPENED dropdown list readable in most browsers */
+select option{
+  background-color: var(--field-bg-strong);
+  color: var(--text);
+}
+
+/* If you use disabled options */
+select option:disabled{
+  color: rgba(241,246,255,.45);
+}
+
+/* Optional: improves consistency on some browsers (enable if needed) */
+/*
+select{
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  appearance:none;
+
+  background-image:url("data:image/svg+xml;utf8,<svg fill='white' height='20' viewBox='0 0 20 20' width='20' xmlns='http://www.w3.org/2000/svg'><path d='M5 7l5 5 5-5H5z'/></svg>");
+  background-repeat:no-repeat;
+  background-position:right 12px center;
+  padding-right:40px;
+}
+*/
 
 /* ===================== BUTTONS ===================== */
 .btn{
@@ -287,12 +328,15 @@ input:focus, select:focus{
   position:absolute;
   right:0;
   top:55px;
-  background:rgba(20,30,55,.95);
-  backdrop-filter:blur(10px);
-  border-radius:14px;
+
+  /* Only ONE background */
+  background:linear-gradient(145deg,#0f172a,#1e293b);
+
+  backdrop-filter:blur(14px);
+  border-radius:16px;
   padding:10px;
-  box-shadow:0 20px 50px rgba(0,0,0,.4);
-  border:1px solid var(--border);
+  box-shadow:0 20px 50px rgba(0,0,0,.5);
+  border:1px solid rgba(255,255,255,.08);
   min-width:180px;
   z-index:999;
 }
@@ -385,4 +429,30 @@ input:focus, select:focus{
   border-top:1px solid var(--border);
   font-size:12px;
   color:var(--muted);
+}
+
+/* ===================== AUTH BUTTON FIX ===================== */
+.auth-card .btn{
+  width:100%;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:10px;
+  padding:14px 18px;
+  border-radius:16px;
+  margin-top:6px;
+}
+
+/* Optional: nicer pressed feel */
+.auth-card .btn:active{
+  transform:translateY(0);
+  box-shadow:0 6px 18px rgba(79,140,255,.30);
+}
+
+/* Optional: disabled state (if you disable button until valid) */
+.auth-card .btn:disabled{
+  opacity:.6;
+  cursor:not-allowed;
+  transform:none;
+  box-shadow:none;
 }

@@ -1,4 +1,5 @@
-// server.js
+// backend/server.js  ✅ FULL UPDATED (fixed role + create-profile route order)
+
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
@@ -21,8 +22,7 @@ const ALLOWED_ORIGINS = [
 app.use(
   cors({
     origin: (origin, cb) => {
-      // allow curl/postman/no-origin
-      if (!origin) return cb(null, true);
+      if (!origin) return cb(null, true); // allow curl/postman/no-origin
       if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
       return cb(new Error("Not allowed by CORS: " + origin));
     },
@@ -50,8 +50,10 @@ if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
 }
 
 // Create clients only if we have the required vars (prevents crash loops)
-const supabaseAdmin = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY) : null;
-const supabaseAuth = SUPABASE_URL && ANON_KEY ? createClient(SUPABASE_URL, ANON_KEY) : null;
+const supabaseAdmin =
+  SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY) : null;
+const supabaseAuth =
+  SUPABASE_URL && ANON_KEY ? createClient(SUPABASE_URL, ANON_KEY) : null;
 
 /* -------------------------
    Helpers
@@ -96,7 +98,6 @@ app.get("/", (req, res) => {
 // Optional: quick env/auth connectivity check (safe, no secrets shown)
 app.get("/api/debug-auth", requireSupabase, async (req, res) => {
   try {
-    // simple query to ensure DB connection works
     const { error } = await supabaseAdmin.from("profiles").select("id").limit(1);
     return res.json({
       ok: !error,
@@ -111,7 +112,42 @@ app.get("/api/debug-auth", requireSupabase, async (req, res) => {
   }
 });
 
-// Signup
+/* =========================================================
+   ✅ IMPORTANT FIX:
+   /api/create-profile MUST be BEFORE 404 fallback
+   + role validation + normalization
+========================================================= */
+app.post("/api/create-profile", requireSupabase, async (req, res) => {
+  try {
+    let { id, email, role, area } = req.body;
+
+    email = String(email || "").trim().toLowerCase();
+    role = normalizeRole(role);
+    area = String(area || "").trim();
+
+    if (!id || !email || !role || !area) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+
+    if (!ALLOWED_ROLES.includes(role)) {
+      return res.status(400).json({
+        error: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}`,
+      });
+    }
+
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .upsert([{ id, email, role, area }], { onConflict: "id" });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    return res.json({ ok: true, message: "Profile created ✅", role, area });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Signup (optional backend signup route)
 app.post("/api/signup", requireSupabase, async (req, res) => {
   try {
     let { email, password, role, area } = req.body;
@@ -134,7 +170,7 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // demo-friendly
+      email_confirm: true,
     });
 
     if (error || !data?.user) {
@@ -146,7 +182,7 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
 
     const userId = data.user.id;
 
-    // Upsert profile (no duplicate key issue)
+    // Upsert profile
     const { error: perr } = await supabaseAdmin
       .from("profiles")
       .upsert([{ id: userId, email, role, area }], { onConflict: "id" });
@@ -185,7 +221,6 @@ app.post("/api/login", requireSupabase, async (req, res) => {
     });
 
     if (error || !data?.user) {
-      // ✅ expose real reason (so you can fix immediately)
       return res.status(401).json({
         error: "Login failed",
         supabase_error: error?.message || "No user returned",
@@ -213,43 +248,18 @@ app.post("/api/login", requireSupabase, async (req, res) => {
       });
     }
 
-    // If profile missing, create default (safety)
-    let finalProfile = profile;
-    if (!finalProfile) {
-      const { error: ierr } = await supabaseAdmin
-        .from("profiles")
-        .upsert(
-          [
-            {
-              id: data.user.id,
-              email: data.user.email,
-              role: "worker",
-              area: "General",
-            },
-          ],
-          { onConflict: "id" }
-        );
-
-      if (ierr) {
-        return res.status(400).json({
-          error: "Profile auto-create failed",
-          supabase_error: ierr.message,
-        });
-      }
-
-      const again = await supabaseAdmin
-        .from("profiles")
-        .select("role, area, email, id")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      finalProfile = again.data || null;
+    // ✅ IMPORTANT FIX: Do NOT auto-create "worker" profile (causes wrong role)
+    if (!profile) {
+      return res.status(404).json({
+        error: "Profile not found for this user.",
+        hint: "Your /api/create-profile call may have failed earlier. Signup again.",
+      });
     }
 
     return res.json({
       token,
       user: { id: data.user.id, email: data.user.email },
-      profile: finalProfile,
+      profile,
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -275,7 +285,9 @@ app.get("/api/profile", authMiddleware, requireSupabase, async (req, res) => {
   res.json(data);
 });
 
-// 404 JSON fallback
+/* -------------------------
+   404 JSON fallback  ✅ MUST BE LAST
+-------------------------- */
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found", path: req.originalUrl });
 });
@@ -285,18 +297,3 @@ app.use((req, res) => {
 -------------------------- */
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log("✅ Backend running on", PORT));
-
-app.post("/api/create-profile", async (req, res) => {
-  const { id, email, role, area } = req.body;
-  if (!id || !email || !role || !area) {
-    return res.status(400).json({ error: "Missing fields" });
-  }
-
-  const { error } = await supabaseAdmin
-    .from("profiles")
-    .upsert([{ id, email, role, area }], { onConflict: "id" });
-
-  if (error) return res.status(400).json({ error: error.message });
-
-  res.json({ message: "Profile created" });
-});

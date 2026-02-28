@@ -4,10 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Login - Smart Waste ERP</title>
+
   <link rel="stylesheet" href="style.css">
+
+  <!-- ✅ Prevent flicker while checking session -->
+  <style>
+    body.auth-checking .auth-wrap { visibility: hidden; }
+  </style>
 </head>
 
-<body class="auth-body">
+<body class="auth-body auth-checking">
   <div class="auth-wrap">
     <div class="auth-card">
       <div class="auth-header">
@@ -18,9 +24,7 @@
         </div>
       </div>
 
-      <!-- ✅ FORM ADDED: Press Enter works -->
       <form id="loginForm" class="auth-grid">
-
         <label class="field">
           <span>Email</span>
           <input type="email" id="email" placeholder="example@domain.com" autocomplete="email" required>
@@ -31,7 +35,6 @@
           <input type="password" id="password" placeholder="Enter password" autocomplete="current-password" required>
         </label>
 
-        <!-- ✅ submit button (no onclick) -->
         <button type="submit" class="btn primary">Login</button>
 
         <p class="muted" style="margin:0;">
@@ -45,16 +48,58 @@
     </div>
   </div>
 
+  <!-- ✅ Load your app module first -->
   <script type="module" src="app.js"></script>
 
-  <!-- ✅ Handles Enter key + submit -->
+  <!-- ✅ Session check + submit binding (no flicker) -->
   <script type="module">
-    const form = document.getElementById("loginForm");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      await signIn();   // calls window.signIn from app.js
-    });
-  </script>
+    async function waitFor(fnName, timeoutMs = 2000) {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        if (typeof window[fnName] === "function") return true;
+        await new Promise(r => setTimeout(r, 20));
+      }
+      return false;
+    }
 
+    (async () => {
+      // Ensure app.js attached functions (protectPage/signIn) to window
+      await waitFor("protectPage", 2500);
+      await waitFor("signIn", 2500);
+
+      // ✅ If already logged in, redirect BEFORE showing login UI
+      try {
+        // protectPage should return true when session exists + role allowed
+        const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
+
+        // If session exists, go dashboard
+        const role = localStorage.getItem("role");
+        if (ok && role) {
+          window.location.replace("dashboard.html");
+          return;
+        }
+      } catch (err) {
+        // ignore errors; show login
+      }
+
+      // ✅ Show login page only if staying here
+      document.body.classList.remove("auth-checking");
+
+      // ✅ Bind form submit
+      const form = document.getElementById("loginForm");
+      const msg = document.getElementById("msg");
+
+      form?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        msg.textContent = "";
+
+        try {
+          await window.signIn?.();
+        } catch (err) {
+          msg.textContent = err?.message || "Login failed";
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
