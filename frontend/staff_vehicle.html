@@ -1,3 +1,4 @@
+<!-- staff_vehicle.html (FULL UPDATED v2 - Manual Task Vehicle ID added) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28,7 +29,7 @@
       <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
-      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a class="nav-worker nav-driver nav-admin active" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
       <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
@@ -36,7 +37,7 @@
       <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints (optional) -->
+      <!-- Complaints -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
@@ -62,34 +63,106 @@
             style="cursor:pointer;"
           />
         </a>
-
         <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
-    <!-- Form -->
+    <!-- ✅ ADMIN: MANUAL TASK ASSIGNMENT -->
+    <!-- NOTE: app.js should show/hide this card based on role -->
+    <div class="card" id="adminManualTaskCard" style="display:none; margin-bottom:14px;">
+      <h2 style="margin-top:0;">Admin: Create & Assign Manual Task</h2>
+      <p class="sub" style="margin-top:-6px; opacity:.85;">
+        Create a pickup/inspection/maintenance task and assign directly to a worker/driver.
+        <br />
+        <b>Requirement:</b> After creating, it must appear in <b>Activity Logs</b>.
+      </p>
+
+      <div class="form">
+        <div>
+          <div class="label">Assign To (Worker/Driver)</div>
+          <select id="manualAssignTo">
+            <option value="">Loading staff...</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="label">Task Type</div>
+          <select id="manualTaskType">
+            <option value="pickup">Pickup</option>
+            <option value="inspection">Inspection</option>
+            <option value="maintenance">Maintenance</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="label">Bin ID (optional)</div>
+          <input id="manualBinId" placeholder="Paste bins.id (optional)" />
+        </div>
+
+        <div>
+          <div class="label">Area / Route</div>
+          <input id="manualRoute" placeholder="Eg: Peelamedu Route-2" />
+        </div>
+
+        <!-- ✅ NEW: Vehicle ID for Manual Task -->
+        <div>
+          <div class="label">Vehicle ID (optional)</div>
+          <input id="manualVehicleId" placeholder="Eg: TN-37-WM-1023" />
+        </div>
+
+        <div>
+          <div class="label">Priority</div>
+          <select id="manualPriority">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+
+        <div>
+          <div class="label">Due Date</div>
+          <input id="manualDueDate" type="date" />
+        </div>
+
+        <div class="full">
+          <div class="label">Notes</div>
+          <textarea id="manualNotes" rows="3" placeholder="Extra details..."></textarea>
+        </div>
+
+        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button type="button" class="btn" id="btnCreateManualTask">Create & Assign</button>
+          <button type="button" class="btn" id="btnClearManualTask" style="opacity:.9;">Clear</button>
+        </div>
+
+        <div class="full sub" style="margin-top:8px; opacity:.85;">
+          Tip: after clicking <b>Create & Assign</b>, this page will auto-refresh the logs table.
+        </div>
+      </div>
+    </div>
+
+    <!-- Trip / Shift Log -->
     <div class="card">
       <h2 style="margin-top:0;">New Trip / Shift Log</h2>
 
       <div class="form">
         <div>
           <div class="label">Date</div>
-          <input type="date" id="vdate">
+          <input type="date" id="vdate" />
         </div>
 
         <div>
           <div class="label">Vehicle ID</div>
-          <input id="vehicleId" placeholder="Eg: TN-37-WM-1023">
+          <input id="vehicleId" placeholder="Eg: TN-37-WM-1023" />
         </div>
 
         <div>
           <div class="label">Staff Name (must match Users full_name or email)</div>
-          <input id="staffName" placeholder="Eg: Ravi Kumar">
+          <input id="staffName" placeholder="Eg: Ravi Kumar" />
         </div>
 
         <div>
           <div class="label">Assigned Area / Route</div>
-          <input id="route" placeholder="Eg: Peelamedu Route-2">
+          <input id="route" placeholder="Eg: Peelamedu Route-2" />
         </div>
 
         <div>
@@ -113,15 +186,19 @@
         <!-- NOTE: This is pickup task id, NOT trip task id -->
         <div class="full" style="margin-top:6px;">
           <div class="label">Pickup Task ID (only if you want to reference pickup)</div>
-          <input id="taskId" placeholder="Optional: pickup_tasks.id (not required for Trip log)">
+          <input id="taskId" placeholder="Optional: pickup_tasks.id (not required for Trip log)" />
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            Trip logs are saved to <b>staff_tasks</b>. Pickup flow is handled in <b>My Tasks</b> & <b>Collection</b>.
+            Trip logs should be saved to <b>staff_tasks</b>. Pickup flow is handled in <b>My Tasks</b> &amp; <b>Collection</b>.
           </div>
         </div>
 
         <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
           <button type="button" class="btn" id="saveTripBtn">Save Log</button>
           <button type="button" class="btn" id="goCollectionBtn" style="opacity:.9;">Go to Collection</button>
+        </div>
+
+        <div class="full sub" style="margin-top:8px; opacity:.85;">
+          Tip: after clicking <b>Save Log</b>, this page will auto-refresh the logs table.
         </div>
       </div>
     </div>
@@ -130,7 +207,7 @@
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Activity Logs</h2>
-        <input id="searchTrips" placeholder="Search vehicle/staff/route/status...">
+        <input id="searchTrips" placeholder="Search vehicle/staff/route/status..." />
       </div>
 
       <table class="table">
@@ -146,6 +223,7 @@
             <th>Actions</th>
           </tr>
         </thead>
+        <!-- ✅ IMPORTANT: keep this id EXACTLY as tripsBody so app.js can render into it -->
         <tbody id="tripsBody">
           <tr><td colspan="8" style="opacity:.8;">Loading...</td></tr>
         </tbody>
@@ -157,15 +235,19 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ✅ ONLY app.js (remove the old inline script completely) -->
+<!-- ✅ ONLY app.js -->
 <script type="module" src="app.js"></script>
 
 <script>
-  // Small page-only wiring (app.js already does most things)
+  // Page-only wiring (keeps everything compatible with app.js)
   window.addEventListener("DOMContentLoaded", () => {
     // Default date
     const vdate = document.getElementById("vdate");
     if (vdate && !vdate.value) vdate.value = new Date().toISOString().slice(0, 10);
+
+    // Default due date today (admin manual)
+    const due = document.getElementById("manualDueDate");
+    if (due && !due.value) due.value = new Date().toISOString().slice(0, 10);
 
     // Buttons
     document.getElementById("goCollectionBtn")?.addEventListener("click", () => {
@@ -174,6 +256,48 @@
 
     document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
     document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
+
+    // ===== Admin Manual Task UI wiring =====
+    window.initAdminManualTaskUI?.();
+
+    // Clear button
+    document.getElementById("btnClearManualTask")?.addEventListener("click", () => {
+      const set = (id, v="") => { const el = document.getElementById(id); if (el) el.value = v; };
+      set("manualAssignTo", "");
+      set("manualTaskType", "pickup");
+      set("manualBinId", "");
+      set("manualRoute", "");
+      set("manualVehicleId", "");   // ✅ NEW
+      set("manualPriority", "normal");
+      set("manualNotes", "");
+      const due = document.getElementById("manualDueDate");
+      if (due) due.value = new Date().toISOString().slice(0, 10);
+    });
+
+    // Create button -> createManualTask() in app.js
+    // ✅ After create, refresh Activity Logs so the new entry appears.
+    document.getElementById("btnCreateManualTask")?.addEventListener("click", async () => {
+      try {
+        if (typeof window.createManualTask === "function") {
+          await window.createManualTask();
+        }
+      } finally {
+        window.loadStaffVehicleLogs?.();
+        window.renderStaffVehicleLogs?.();
+        window.loadTrips?.();
+        window.renderTrips?.();
+      }
+    });
+
+    // ✅ After saving trip, refresh Activity Logs (non-breaking)
+    document.getElementById("saveTripBtn")?.addEventListener("click", () => {
+      setTimeout(() => {
+        window.loadStaffVehicleLogs?.();
+        window.renderStaffVehicleLogs?.();
+        window.loadTrips?.();
+        window.renderTrips?.();
+      }, 400);
+    });
   });
 </script>
 

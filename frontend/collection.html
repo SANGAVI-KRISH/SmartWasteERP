@@ -1,3 +1,4 @@
+<!-- collection.html (FULL UPDATED v2 - Vehicle details + save to DB if columns exist, else fallback) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,28 +16,21 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
-      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+      <a class="nav-worker nav-driver nav-admin active" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
@@ -50,7 +44,7 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Waste Collection</h1>
-        <p class="sub" id="pageSub">Add collection records. If work is completed, link the Pickup Task ID.</p>
+        <p class="sub" id="pageSub">Add collection records. Link Pickup Task ID or Trip Task ID.</p>
       </div>
 
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
@@ -96,17 +90,37 @@
           <input type="number" id="qty" placeholder="Eg: 25" min="0" step="0.01">
         </div>
 
-        <!-- ✅ Mandatory workflow support -->
+        <!-- ✅ NEW: Vehicle details -->
+        <div>
+          <div class="label">Vehicle ID (optional)</div>
+          <input type="text" id="vehicleId" placeholder="Eg: TN-37-WM-1023">
+          <div class="sub" style="margin-top:6px; opacity:.85;">
+            If DB has <b>vehicle_id</b> column, it will be saved. Otherwise it will stay as reference only.
+          </div>
+        </div>
+
+        <!-- ✅ UI-only Bin reference (not saved unless column exists) -->
         <div>
           <div class="label">Bin ID (optional)</div>
-          <input type="text" id="binId" placeholder="Eg: BIN-001">
+          <input type="text" id="binId" placeholder="Eg: B001">
+          <div class="sub" style="margin-top:6px; opacity:.85;">
+            Saved only if your table has <b>bin_id</b> column. Otherwise reference only.
+          </div>
         </div>
 
         <div class="full">
-          <div class="label">Pickup Task ID (Mandatory to complete task)</div>
-          <input type="text" id="taskId" placeholder="Paste pickup_tasks.id here (recommended)">
+          <div class="label">Pickup Task ID (for pickup flow)</div>
+          <input type="text" id="taskId" placeholder="Auto-filled from My Tasks / Bin Status">
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            If you paste Task ID, this entry will be linked to the task and later the system can allow status = COLLECTED/COMPLETED.
+            Pickup flow: links the collection record to <b>pickup_tasks.id</b>.
+          </div>
+        </div>
+
+        <div class="full">
+          <div class="label">Trip Staff Task ID (auto from Trip completion)</div>
+          <input type="text" id="staffTaskId" placeholder="Auto-filled when you complete a Trip">
+          <div class="sub" style="margin-top:6px; opacity:.85;">
+            Trip flow: completing Trip redirects here and auto-fills this ID.
           </div>
         </div>
 
@@ -121,7 +135,7 @@
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Saved Records</h2>
-        <input id="searchCollections" placeholder="Search area/type/date/task...">
+        <input id="searchCollections" placeholder="Search area/type/date/task/vehicle...">
       </div>
 
       <table class="table">
@@ -131,12 +145,16 @@
             <th>Area</th>
             <th>Type</th>
             <th>Qty (kg)</th>
+            <th>Vehicle</th>
             <th>Bin</th>
-            <th>Task ID</th>
+            <th>Pickup Task ID</th>
+            <th>Trip Task ID</th>
             <th>Action</th>
           </tr>
         </thead>
-        <tbody id="collectionsBody"></tbody>
+        <tbody id="collectionsBody">
+          <tr><td colspan="9" style="opacity:.8;">Loading...</td></tr>
+        </tbody>
       </table>
     </div>
 
@@ -145,29 +163,11 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- Shared app utilities -->
+<!-- app.js must set window.supabase + window.toast + protectPage + applyRoleMenu -->
 <script type="module" src="./app.js"></script>
 
 <script type="module">
-  // ================================
-  // Helpers
-  // ================================
   const $ = (id) => document.getElementById(id);
-
-  function toast(msg, ok = true) {
-    const el = $("toast");
-    if (!el) return alert(msg);
-    el.textContent = msg;
-    el.classList.remove("show");
-    el.style.borderColor = ok ? "" : "rgba(255,80,80,.55)";
-    el.style.background = ok ? "" : "rgba(255,80,80,.12)";
-    setTimeout(() => el.classList.add("show"), 10);
-    setTimeout(() => el.classList.remove("show"), 2600);
-  }
-
-  function getSB() {
-    return window.supabase || window.sb || window._supabase || null;
-  }
 
   function todayISO() {
     const d = new Date();
@@ -176,154 +176,311 @@
     return `${d.getFullYear()}-${mm}-${dd}`;
   }
 
-  function required(v) {
-    return v != null && String(v).trim().length > 0;
+  function getSB() {
+    return window.supabase || null;
   }
 
-  // ================================
-  // CONFIG: Table name
-  // If your DB table is "collections" instead of "collection_records", change it here.
-  // ================================
-  const COLLECTION_TABLE = "collection_records";
+  function toast(msg, ok = true) {
+    if (window.toast) return window.toast(msg);
+    const el = $("toast");
+    if (!el) return alert(msg);
+    el.textContent = msg;
+    el.style.display = "block";
+    el.style.borderColor = ok ? "" : "rgba(255,80,80,.55)";
+    el.style.background = ok ? "" : "rgba(255,80,80,.12)";
+    clearTimeout(window.__t);
+    window.__t = setTimeout(() => (el.style.display = "none"), 2200);
+  }
 
-  // ================================
-  // CRUD
-  // ================================
-  async function saveCollection() {
+  async function ensureAuth() {
+    window.applyRoleMenu?.();
+    const ok = await window.protectPage?.(["admin","worker","driver"]);
+    if (!ok) return false;
+    window.setActiveNav?.();
+    window.initProfileMenu?.();
+    return true;
+  }
+
+  // ✅ Try insert; if DB doesn't have bin_id / vehicle_id columns, fallback without them
+  async function safeInsertCollection(sb, payloadFull, payloadFallback) {
+    let r1 = await sb.from("collection_records").insert([payloadFull]);
+    if (!r1.error) return { ok: true, usedFallback: false };
+
+    const msg = (r1.error.message || "").toLowerCase();
+    if (msg.includes("column") && msg.includes("does not exist")) {
+      const r2 = await sb.from("collection_records").insert([payloadFallback]);
+      if (r2.error) return { ok: false, error: r2.error.message };
+      return { ok: true, usedFallback: true };
+    }
+
+    return { ok: false, error: r1.error.message };
+  }
+
+  // ✅ AUTO-FILL: task_id + staff_task_id + area + bin_id + vehicle_id from URL + fetch if missing
+  async function autofillFromUrl() {
     const sb = getSB();
-    if (!sb) return toast("Supabase client not found (app.js must expose window.supabase)", false);
+    const sp = new URLSearchParams(window.location.search);
 
-    const date = $("date").value || todayISO();
-    const area = $("area").value.trim();
-    const waste_type = $("type").value;
-    const quantity_kg = Number($("qty").value);
-    const bin_id = $("binId").value.trim() || null;
-    const task_id = $("taskId").value.trim() || null;
+    const task_id = (sp.get("task_id") || "").trim();
+    const staff_task_id = (sp.get("staff_task_id") || "").trim();
+    const areaFromUrl = (sp.get("area") || "").trim();
+    const binFromUrl = (sp.get("bin_id") || sp.get("binId") || "").trim();
+    const vehicleFromUrl = (sp.get("vehicle_id") || sp.get("vehicleId") || "").trim();
 
-    if (!required(area)) return toast("Area is required.", false);
-    if (!Number.isFinite(quantity_kg) || quantity_kg < 0) return toast("Enter valid Quantity (>= 0).", false);
+    if (task_id && $("taskId")) $("taskId").value = task_id;
+    if (staff_task_id && $("staffTaskId")) $("staffTaskId").value = staff_task_id;
 
-    // user_id from session if your app.js stores it; otherwise DB policy might use auth.uid()
-    // We'll try to use auth.uid() through DB policy. But if your table requires user_id not null, we must set it.
-    const session = window.getSession?.() || JSON.parse(localStorage.getItem("cloudcrafter_session") || "null");
-    const user_id = session?.id || session?.user?.id || null;
+    if (areaFromUrl && $("area") && !$("area").value) $("area").value = areaFromUrl;
+    if (binFromUrl && $("binId") && !$("binId").value) $("binId").value = binFromUrl;
+    if (vehicleFromUrl && $("vehicleId") && !$("vehicleId").value) $("vehicleId").value = vehicleFromUrl;
 
-    const payload = {
-      date,
-      area,
-      waste_type,
-      quantity_kg,
-      bin_id,
-      task_id
-    };
+    // If coming from pickup task and area/bin missing -> fetch from pickup_tasks
+    if (task_id && sb) {
+      try {
+        const { data, error } = await sb
+          .from("pickup_tasks")
+          .select("area,bin_id")
+          .eq("id", task_id)
+          .maybeSingle();
 
-    // Only include user_id if you store it and column exists. (If column doesn't exist, Supabase will error)
-    // If your schema has user_id NOT NULL, uncomment next line:
-    // payload.user_id = user_id;
+        if (!error && data) {
+          if ($("area") && !$("area").value && data.area) $("area").value = data.area;
+          if ($("binId") && !$("binId").value && data.bin_id) $("binId").value = data.bin_id;
+        }
+      } catch {}
+    }
 
-    const { error } = await sb.from(COLLECTION_TABLE).insert(payload);
-    if (error) return toast(error.message, false);
+    // If coming from trip task and area/vehicle missing -> fetch from staff_tasks
+    if (staff_task_id && sb) {
+      try {
+        const { data, error } = await sb
+          .from("staff_tasks")
+          .select("route,vehicle_id")
+          .eq("id", staff_task_id)
+          .maybeSingle();
 
-    toast("Collection saved ✅");
-    $("qty").value = "";
-    $("binId").value = "";
-    // keep taskId to make multiple entries easier
-    await renderCollections();
+        if (!error && data) {
+          if ($("area") && !$("area").value && data.route) $("area").value = data.route;
+          if ($("vehicleId") && !$("vehicleId").value && data.vehicle_id) $("vehicleId").value = data.vehicle_id;
+        }
+      } catch {}
+    }
+
+    if (task_id || staff_task_id) toast("Auto-filled from task ✅");
+  }
+
+  function esc(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  async function renderCollections() {
+    const sb = getSB();
+    const body = $("collectionsBody");
+    if (!sb) {
+      body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">Supabase not found. app.js must set window.supabase</td></tr>`;
+      return;
+    }
+
+    const q = ($("searchCollections")?.value || "").trim().toLowerCase();
+
+    const { data: sess } = await sb.auth.getSession();
+    const session = sess?.session;
+    if (!session) return;
+
+    // We try selecting optional columns; if they don't exist, fallback select.
+    const selectFull = "id,date,area,waste_type,quantity_kg,task_id,staff_task_id,vehicle_id,bin_id,created_at";
+    let rows = [];
+
+    {
+      const r1 = await sb
+        .from("collection_records")
+        .select(selectFull)
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(300);
+
+      if (!r1.error) {
+        rows = r1.data || [];
+      } else {
+        const msg = (r1.error.message || "").toLowerCase();
+        if (msg.includes("column") && msg.includes("does not exist")) {
+          const r2 = await sb
+            .from("collection_records")
+            .select("id,date,area,waste_type,quantity_kg,task_id,staff_task_id,created_at")
+            .eq("user_id", session.user.id)
+            .order("created_at", { ascending: false })
+            .limit(300);
+
+          if (r2.error) {
+            console.log("renderCollections error:", r2.error);
+            body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r2.error.message)}</td></tr>`;
+            return;
+          }
+          rows = r2.data || [];
+        } else {
+          console.log("renderCollections error:", r1.error);
+          body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r1.error.message)}</td></tr>`;
+          return;
+        }
+      }
+    }
+
+    const filtered = (rows || []).filter(r => {
+      if (!q) return true;
+      const hay = `${r.date||""} ${r.area||""} ${r.waste_type||""} ${r.quantity_kg||""} ${r.task_id||""} ${r.staff_task_id||""} ${r.vehicle_id||""} ${r.bin_id||""}`.toLowerCase();
+      return hay.includes(q);
+    });
+
+    if (!filtered.length) {
+      body.innerHTML = `<tr><td colspan="9" style="opacity:.8;">No records found.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = filtered.map(r => `
+      <tr>
+        <td>${esc(r.date ?? "-")}</td>
+        <td>${esc(r.area ?? "-")}</td>
+        <td>${esc(r.waste_type ?? "-")}</td>
+        <td>${esc(r.quantity_kg ?? "-")}</td>
+        <td>${esc(r.vehicle_id ?? "-")}</td>
+        <td>${esc(r.bin_id ?? "-")}</td>
+        <td style="max-width:220px; word-break:break-all;">${esc(r.task_id ?? "-")}</td>
+        <td style="max-width:220px; word-break:break-all;">${esc(r.staff_task_id ?? "-")}</td>
+        <td><button class="btn red" style="padding:6px 10px;" data-del="${esc(r.id)}">Delete</button></td>
+      </tr>
+    `).join("");
+
+    body.querySelectorAll("[data-del]").forEach(btn => {
+      btn.addEventListener("click", () => deleteCollection(btn.getAttribute("data-del")));
+    });
   }
 
   async function deleteCollection(id) {
     const sb = getSB();
-    if (!sb) return toast("Supabase client not found", false);
+    if (!sb) return;
 
     const yes = confirm("Delete this record?");
     if (!yes) return;
 
-    const { error } = await sb.from(COLLECTION_TABLE).delete().eq("id", id);
-    if (error) return toast(error.message, false);
+    const { data: sess } = await sb.auth.getSession();
+    const session = sess?.session;
+    if (!session) return;
+
+    const { error } = await sb
+      .from("collection_records")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", session.user.id);
+
+    if (error) {
+      console.log("delete error:", error);
+      return toast("Delete failed: " + error.message, false);
+    }
 
     toast("Deleted ✅");
     await renderCollections();
   }
 
-  async function renderCollections() {
+  async function saveCollection() {
     const sb = getSB();
-    if (!sb) return;
+    if (!sb) return toast("Supabase not found (app.js must set window.supabase)", false);
 
-    const q = ($("searchCollections").value || "").trim().toLowerCase();
+    if (window.__savingCollection) return;
+    window.__savingCollection = true;
 
-    const { data, error } = await sb
-      .from(COLLECTION_TABLE)
-      .select("*")
-      .order("date", { ascending: false })
-      .limit(250);
+    const btn = $("saveCollectionBtn");
+    const oldText = btn.textContent;
+    btn.textContent = "Saving...";
+    btn.disabled = true;
 
-    if (error) return toast(error.message, false);
+    try {
+      const { data: sess } = await sb.auth.getSession();
+      const session = sess?.session;
+      if (!session) {
+        toast("Login required", false);
+        window.location = "index.html";
+        return;
+      }
 
-    const rows = (data || []).filter((r) => {
-      if (!q) return true;
-      const hay = `${r.date || ""} ${r.area || ""} ${r.waste_type || ""} ${r.quantity_kg || ""} ${r.bin_id || ""} ${r.task_id || ""}`.toLowerCase();
-      return hay.includes(q);
-    });
+      const date = $("date")?.value || todayISO();
+      const area = ($("area")?.value || "").trim();
+      const waste_type = $("type")?.value;
+      const quantity_kg = Number($("qty")?.value);
 
-    const body = $("collectionsBody");
-    body.innerHTML = "";
+      const vehicle_id = ($("vehicleId")?.value || "").trim() || null;
+      const bin_id = ($("binId")?.value || "").trim() || null;
 
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="7" style="opacity:.8;">No records found.</td></tr>`;
-      return;
+      const task_id = ($("taskId")?.value || "").trim() || null;
+      const staff_task_id = ($("staffTaskId")?.value || "").trim() || null;
+
+      if (!area) { toast("Area is required.", false); return; }
+      if (!Number.isFinite(quantity_kg) || quantity_kg <= 0) { toast("Quantity must be > 0.", false); return; }
+
+      // Full payload (includes optional columns)
+      const payloadFull = {
+        user_id: session.user.id,
+        date,
+        area,
+        waste_type,
+        quantity_kg,
+        task_id,
+        staff_task_id,
+        vehicle_id,
+        bin_id
+      };
+
+      // Fallback payload (only guaranteed columns)
+      const payloadFallback = {
+        user_id: session.user.id,
+        date,
+        area,
+        waste_type,
+        quantity_kg,
+        task_id,
+        staff_task_id
+      };
+
+      const r = await safeInsertCollection(sb, payloadFull, payloadFallback);
+      if (!r.ok) {
+        toast("Save failed: " + r.error, false);
+        return;
+      }
+
+      toast(r.usedFallback
+        ? "Collection saved ✅ (vehicle/bin not saved because DB columns not found)"
+        : "Collection saved ✅"
+      );
+
+      if ($("qty")) $("qty").value = "";
+      await renderCollections();
+
+    } finally {
+      window.__savingCollection = false;
+      btn.textContent = oldText;
+      btn.disabled = false;
     }
-
-    for (const r of rows) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${r.date ?? "-"}</td>
-        <td>${r.area ?? "-"}</td>
-        <td>${r.waste_type ?? "-"}</td>
-        <td>${r.quantity_kg ?? "-"}</td>
-        <td>${r.bin_id ?? "-"}</td>
-        <td style="max-width:260px; word-break:break-all;">${r.task_id ?? "-"}</td>
-        <td>
-          <button class="btn red" style="padding:6px 10px;" data-del="${r.id}">Delete</button>
-        </td>
-      `;
-      body.appendChild(tr);
-    }
-
-    body.querySelectorAll("[data-del]").forEach((btn) => {
-      btn.addEventListener("click", () => deleteCollection(btn.getAttribute("data-del")));
-    });
   }
 
-  // expose (optional)
-  window.renderCollections = renderCollections;
-
-  // ================================
-  // Init
-  // ================================
   window.addEventListener("DOMContentLoaded", async () => {
-    // 1) hide menu immediately
-    window.applyRoleMenu?.();
-
-    // ✅ Allowed: admin, worker, driver (NOT recycling_manager)
-    const ok = await window.protectPage?.(["admin", "worker", "driver"]);
+    const ok = await ensureAuth();
     if (!ok) return;
 
-    window.setActiveNav?.();
-    window.initProfileMenu?.();
+    if (!$("date")?.value) $("date").value = todayISO();
 
-    // Default date
-    if (!$("date").value) $("date").value = todayISO();
+    await autofillFromUrl();
 
-    // Events
-    $("saveCollectionBtn").addEventListener("click", saveCollection);
-    $("goStaffVehicleBtn").addEventListener("click", () => (window.location.href = "staff_vehicle.html"));
-    $("searchCollections").addEventListener("input", renderCollections);
+    $("saveCollectionBtn")?.addEventListener("click", saveCollection);
+    $("goStaffVehicleBtn")?.addEventListener("click", () => (window.location.href = "staff_vehicle.html"));
+    $("searchCollections")?.addEventListener("input", renderCollections);
 
-    // Logout
-    $("logoutBtnTop").addEventListener("click", () => window.logout?.());
-    $("logoutBtnSidebar").addEventListener("click", () => window.logout?.());
+    $("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
+    $("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
 
-    // Render
     await renderCollections();
   });
 </script>

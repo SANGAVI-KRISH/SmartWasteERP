@@ -456,3 +456,113 @@ select{
   transform:none;
   box-shadow:none;
 }
+
+/* =========================
+   MODAL OVERLAY (FIXED)
+========================= */
+
+/* Dark background behind popup */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);   /* dim background */
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;   /* ABOVE SIDEBAR */
+}
+
+/* Popup box */
+.modal-card {
+  width: 420px;
+  max-width: 95%;
+  background: #0f1b2d;
+  border-radius: 14px;
+  padding: 22px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06),
+              0 20px 50px rgba(0,0,0,0.7);
+  animation: modalPop 0.25s ease;
+}
+
+/* Animation */
+@keyframes modalPop {
+  from { transform: translateY(25px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Labels */
+.modal-card .label {
+  font-size: 13px;
+  margin-top: 10px;
+  margin-bottom: 4px;
+  color: #9fb3d1;
+}
+
+/* Inputs inside popup */
+.modal-card input,
+.modal-card select,
+.modal-card textarea {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #2a3f5f;
+  background: #0a1422;
+  color: #fff;
+  outline: none;
+  margin-bottom: 6px;
+}
+
+/* Focus glow */
+.modal-card input:focus,
+.modal-card select:focus,
+.modal-card textarea:focus {
+  border-color: #4da3ff;
+  box-shadow: 0 0 0 2px rgba(77,163,255,0.25);
+}
+
+/* Buttons spacing */
+.modal-card .btn {
+  min-width: 100px;
+}
+
+/* Prevent page scroll when popup open */
+body.modal-open {
+  overflow: hidden;
+}
+
+/* =========================
+   TASKS TABLE ALIGNMENT FIX
+========================= */
+
+/* Make all table cells vertically centered */
+.table td, .table th {
+  vertical-align: middle;
+}
+
+/* Action column: keep buttons aligned to the right and center vertically */
+.table td.task-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+/* If action cell contains 2 stacked buttons, still keep it neat */
+.table td.task-actions .btn {
+  margin: 0 !important;
+}
+
+/* Task ID cell: prevent breaking into multiple lines */
+.table td.task-id {
+  white-space: nowrap;
+}
+
+/* Copy button: keep consistent */
+.copy-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}

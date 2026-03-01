@@ -27,7 +27,7 @@
 
       <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
-      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+      <a class="nav-worker nav-driver nav-admin active" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
       <!-- Recycling Manager + Admin -->
@@ -103,9 +103,17 @@
       </div>
     </div>
 
+    <!-- ✅ ADMIN: ASSIGN BIN TASK (modal trigger info) -->
+    <div class="card" id="adminAssignHint" style="display:none; margin-top:14px;">
+      <h2 style="margin-top:0;">Admin: Allocate Work</h2>
+      <p class="sub" style="margin:0; opacity:.85;">
+        Use the <b>Assign</b> button in the Bin Updates table to create a pickup task and allocate it to a worker/driver.
+      </p>
+    </div>
+
     <!-- BIN TABLE -->
     <div class="card" style="margin-top:14px;">
-      <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:10px; gap:12px; align-items:center;">
         <h2 style="margin:0;">Bin Updates</h2>
         <input id="searchBins" placeholder="Search bin/area/status..." oninput="renderBins()" />
       </div>
@@ -117,6 +125,7 @@
             <th>Area</th>
             <th>Status</th>
             <th>Last Updated</th>
+            <th class="nav-admin" style="width:140px;">Actions</th>
           </tr>
         </thead>
         <tbody id="binsBody"></tbody>
@@ -132,6 +141,39 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- ✅ ASSIGN MODAL (Admin only) -->
+<div id="assignBinModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <h3 style="margin-top:0;">Assign Bin Pickup Task</h3>
+
+    <input type="hidden" id="assignBinId">
+
+    <div class="label">Assign To (Worker/Driver)</div>
+    <select id="assignBinTo">
+      <option value="">Loading...</option>
+    </select>
+
+    <div class="label" style="margin-top:10px;">Priority</div>
+    <select id="assignBinPriority">
+      <option value="normal">Normal</option>
+      <option value="high">High</option>
+      <option value="urgent">Urgent</option>
+    </select>
+
+    <div class="label" style="margin-top:10px;">Notes</div>
+    <textarea id="assignBinNotes" rows="3" placeholder="Extra details..."></textarea>
+
+    <div style="display:flex; gap:10px; margin-top:12px;">
+      <button class="btn" type="button" id="btnAssignBinConfirm">Assign</button>
+      <button class="btn red" type="button" id="btnAssignBinCancel">Cancel</button>
+    </div>
+
+    <p class="sub" style="margin-top:10px; opacity:.8;">
+      This will create a new row in <b>pickup_tasks</b> with status <b>ASSIGNED</b>.
+    </p>
+  </div>
+</div>
+
 <!-- IMPORTANT: app.js MUST LOAD FIRST -->
 <script type="module" src="app.js"></script>
 
@@ -146,8 +188,27 @@
     if (!ok) return;
 
     window.initProfileMenu?.();
-    window.renderBins?.();
     window.setActiveNav?.(); // highlight current link
+
+    // Show Admin hint card
+    try {
+      const me = await window.getMyProfileSafe?.();
+      if (me?.role === "admin") {
+        document.getElementById("adminAssignHint").style.display = "block";
+      }
+    } catch {}
+
+    // Wire modal buttons (calls app.js functions if present)
+    document.getElementById("btnAssignBinCancel")?.addEventListener("click", () => {
+      window.closeAssignBinModal?.();
+    });
+
+    document.getElementById("btnAssignBinConfirm")?.addEventListener("click", () => {
+      window.confirmAssignBin?.();
+    });
+
+    // Render bins (app.js should inject Assign buttons for admin)
+    window.renderBins?.();
   });
 </script>
 

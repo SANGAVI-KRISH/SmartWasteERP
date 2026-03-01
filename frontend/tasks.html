@@ -5,6 +5,54 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>My Tasks - Smart Waste ERP</title>
   <link rel="stylesheet" href="style.css">
+
+  <!-- ✅ Page-only CSS fix for alignment (safe even if you already added in style.css) -->
+  <style>
+    /* Center cell content vertically */
+    .table td, .table th { vertical-align: middle; }
+
+    /* Prevent Task ID ugly breaking */
+    td.task-id {
+      max-width: 360px;
+      white-space: nowrap;
+    }
+    td.task-id .id-wrap{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:nowrap;
+      min-width:0;
+    }
+    td.task-id .id-text{
+      overflow:hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 280px;
+      display:inline-block;
+      vertical-align: middle;
+    }
+
+    /* ✅ ACTION column aligned */
+    td.task-actions{
+      display:flex;
+      flex-direction: column;   /* stacked buttons like your screenshot */
+      align-items:flex-end;     /* right side */
+      justify-content:center;   /* center vertically */
+      gap:8px;
+      white-space:nowrap;
+      min-width: 160px;
+    }
+
+    /* Buttons inside action */
+    td.task-actions .btn { margin:0 !important; }
+
+    /* Copy button smaller */
+    .copy-btn {
+      padding: 6px 10px !important;
+      border-radius: 999px;
+      font-size: 12px;
+    }
+  </style>
 </head>
 
 <body>
@@ -85,7 +133,7 @@
             <th>Details</th>
             <th>Task ID</th>
             <th>Status</th>
-            <th>Action</th>
+            <th style="text-align:right;">Action</th>
           </tr>
         </thead>
         <tbody id="tasksBody">
@@ -94,8 +142,9 @@
       </table>
 
       <p class="sub" style="margin-bottom:0;">
-        Tip: For <b>Pickup</b> flow, copy the <b>Task ID</b> from the Bin row (pickup_tasks.id) and paste it in
-        <b>Collection</b> as Task ID. For <b>Trip</b> flow, click Started then Completed → it will redirect to Collection automatically.
+        Tip: Copy Task ID and save a Collection entry first.
+        After saving collection, click <b>Mark Collected</b>.
+        For <b>Trip</b> flow, click once to start, click again to complete → it will redirect to Collection automatically.
       </p>
     </div>
 
@@ -104,7 +153,7 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- load app.js (must expose window.supabase + window.toast + window.updateStaffTaskStatus etc.) -->
+<!-- app.js must expose window.supabase, window.toast, window.pickupActionButton, window.updateStaffTaskStatus, window.completeTripToCollection -->
 <script type="module" src="app.js"></script>
 
 <script type="module">
@@ -136,21 +185,78 @@
     }
   }
 
-  // ✅ Wrapper to ensure UI refresh happens after status update
-  window.__tripStart = async (id) => {
-    await window.updateStaffTaskStatus?.(id, "Started");
-    // If app.js doesn't re-render tasks automatically, we refresh here
-    await renderMyTasksTable();
+  // ✅ SINGLE BUTTON TOGGLE FOR TRIP
+  window.__tripToggle = async (id) => {
+    try {
+      if (!id) return;
+
+      if (typeof window.updateStaffTaskStatus !== "function") {
+        alert("updateStaffTaskStatus not loaded. Check app.js path.");
+        return;
+      }
+
+      const tr = document.querySelector(`tr[data-trip-id="${CSS.escape(id)}"]`);
+      const currentStatus = (tr?.getAttribute("data-status") || "Assigned").trim();
+
+      if (currentStatus === "Assigned") {
+        const r = await window.updateStaffTaskStatus(id, "Started");
+        if (r && r.ok === false) return;
+        await renderMyTasksTable();
+        return;
+      }
+
+      if (currentStatus === "Started") {
+        if (typeof window.completeTripToCollection === "function") {
+          await window.completeTripToCollection(id);
+          return;
+        }
+        const r = await window.updateStaffTaskStatus(id, "Completed");
+        if (r && r.ok === false) return;
+        window.location = `collection.html?staff_task_id=${encodeURIComponent(id)}&mode=trip`;
+        return;
+      }
+
+      window.toast?.("Already completed ✅");
+    } catch (e) {
+      console.log("trip toggle error:", e);
+      window.toast?.("Error: " + (e?.message || e));
+    }
   };
 
-  window.__tripComplete = async (id) => {
-    await window.updateStaffTaskStatus?.(id, "Completed");
-    // updateStaffTaskStatus in app.js already redirects to collection.html?staff_task_id=...
-    // No need to render again; but safe:
-    // await renderMyTasksTable();
-  };
+  // ✅ Bin statuses for pickup tasks
+  async function getBinStatusMap(sb, binIds) {
+    const ids = [...new Set((binIds || []).filter(Boolean))];
+    if (!ids.length) return {};
 
-  // ✅ Render tasks (pickup_tasks + staff_tasks)
+    const { data, error } = await sb
+      .from("bins")
+      .select("bin_id,status")
+      .in("bin_id", ids);
+
+    if (error) {
+      console.log("bins select error:", error);
+      return {};
+    }
+
+    const map = {};
+    (data || []).forEach(b => { map[b.bin_id] = b.status; });
+    return map;
+  }
+
+  // ✅ Remove "Collection" button from pickupActionButton output
+  // Keeps Mark Collected / Delivered / Received / Recycled buttons.
+  function removeCollectionButton(html) {
+    if (!html) return html;
+    const s = String(html);
+
+    // Remove the button that says "Collection" (case-insensitive)
+    // (works whether it is first button or has extra spaces)
+    return s.replace(
+      /<button\b[^>]*>\s*Collection\s*<\/button>\s*/gi,
+      ""
+    ).trim();
+  }
+
   async function renderMyTasksTable() {
     const tbody = $("tasksBody");
     if (!tbody) return;
@@ -181,6 +287,8 @@
       return;
     }
 
+    const binStatusMap = await getBinStatusMap(sb, (pickup || []).map(t => t.bin_id));
+
     // --- Trip tasks ---
     let staffQuery = sb
       .from("staff_tasks")
@@ -192,45 +300,49 @@
     const { data: staffTasks, error: sErr } = await staffQuery;
     if (sErr) console.log("staff_tasks fetch error:", sErr);
 
-    // Map pickup rows (use existing app.js action buttons if available)
     const pickupRows = (pickup || []).map(t => {
+      const bStatus = binStatusMap[t.bin_id] || "-";
       const taskLabel = `Bin: ${t.bin_id || "-"}`;
-      const details = `Area: ${t.area || "-"}`;
+      const details = `Area: ${t.area || "-"} | Bin Status: ${bStatus}`;
       const status = t.status || "-";
       const taskId = t.id || "";
-      const action = (window.pickupActionButton)
-        ? window.pickupActionButton(t, role)
-        : "-";
-      return { taskLabel, details, taskId, status, action };
+
+      let action = "-";
+      if (typeof window.pickupActionButton === "function") {
+        action = window.pickupActionButton(t, role);
+        action = removeCollectionButton(action); // ✅ remove only the Collection button
+        if (!action) action = "-";
+      }
+
+      return { kind: "PICKUP", taskLabel, details, taskId, status, action };
     });
 
-    // Map trip rows (FORCE proper button flow)
     const tripRows = (staffTasks || [])
       .filter(t => (t.task_type || "").toUpperCase() === "TRIP")
       .map(t => {
         const taskLabel = `Trip: ${t.vehicle_id || "-"}`;
         const details = `${t.route || "-"} | ${t.shift || "-"} | ${t.date || "-"}`;
-        const status = t.status || "-";
+        const status = (t.status || "Assigned").trim();
         const taskId = t.id || "";
 
         let action = "-";
         if (role !== "admin") {
-          if (status === "Assigned") {
-            action = `<button class="btn" onclick="__tripStart('${t.id}')">Work Started</button>`;
-          } else if (status === "Started") {
-            action = `<button class="btn" onclick="__tripComplete('${t.id}')">Work Completed</button>`;
-          } else {
+          if (status === "Completed") {
             action = "✅ Done";
+          } else {
+            const btnLabel =
+              status === "Assigned" ? "Work Started" :
+              status === "Started"  ? "Work Completed" :
+              "Update";
+            action = `<button class="btn" onclick="__tripToggle('${taskId}')">${btnLabel}</button>`;
           }
         }
 
-        return { taskLabel, details, taskId, status, action };
+        return { kind: "TRIP", taskLabel, details, taskId, status, action };
       });
 
-    // Combine
     let rows = [...tripRows, ...pickupRows];
 
-    // Filter
     if (q) {
       rows = rows.filter(r => {
         const blob = `${r.taskLabel} ${r.details} ${r.taskId} ${r.status}`.toLowerCase();
@@ -243,34 +355,42 @@
       return;
     }
 
-    // Render rows
     tbody.innerHTML = rows.map(r => `
-      <tr>
+      <tr ${r.kind === "TRIP" ? `data-trip-id="${escapeHtml(r.taskId)}" data-status="${escapeHtml(r.status)}"` : ""}>
         <td>${escapeHtml(r.taskLabel)}</td>
         <td>${escapeHtml(r.details)}</td>
-        <td style="max-width:320px; word-break:break-all;">
-          <span>${escapeHtml(r.taskId)}</span>
-          ${r.taskId ? `<button class="btn" style="margin-left:8px; padding:6px 10px;" data-copy="${escapeHtml(r.taskId)}">Copy</button>` : ""}
+
+        <!-- ✅ Task ID aligned + ellipsis -->
+        <td class="task-id">
+          <div class="id-wrap">
+            <span class="id-text" title="${escapeHtml(r.taskId)}">${escapeHtml(r.taskId)}</span>
+            ${r.taskId ? `<button class="btn copy-btn" data-copy="${escapeHtml(r.taskId)}">Copy</button>` : ""}
+          </div>
         </td>
+
         <td>${escapeHtml(r.status)}</td>
-        <td>${r.action || "-"}</td>
+
+        <!-- ✅ Action column aligned -->
+        <td class="task-actions">${r.action || "-"}</td>
       </tr>
     `).join("");
 
-    // copy binding
+    // Copy binding
     tbody.querySelectorAll("[data-copy]").forEach(btn => {
       btn.addEventListener("click", () => copyToClipboard(btn.getAttribute("data-copy")));
     });
   }
 
   window.addEventListener("DOMContentLoaded", async () => {
-    window.applyRoleMenu?.();
+    if (typeof window.applyRoleMenu === "function") window.applyRoleMenu();
 
-    const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
+    const ok = (typeof window.protectPage === "function")
+      ? await window.protectPage(["admin","worker","driver","recycling_manager"])
+      : true;
     if (!ok) return;
 
-    window.setActiveNav?.();
-    window.initProfileMenu?.();
+    if (typeof window.setActiveNav === "function") window.setActiveNav();
+    if (typeof window.initProfileMenu === "function") window.initProfileMenu();
 
     await renderMyTasksTable();
 

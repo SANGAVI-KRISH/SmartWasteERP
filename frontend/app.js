@@ -1,9 +1,16 @@
-// app.js (FULL UPDATED v3.3 - Trip: Assigned → Started → Completed + Staff & Vehicle Activity Logs visible)
-// ✅ Fixes / Adds in v3.3
-// 1) Staff & Vehicle page now renders logs even if tbody id is different (tripsBody / activityBody / activityTbody)
-// 2) Trip list shows Staff Name (not only UUID) by mapping profiles
-// 3) Optional delete trip log button support (if you add a delete button column in HTML)
-// 4) Keeps your existing Trip -> Collection redirect flow + all previous modules
+// app.js (FULL UPDATED v3.8 - Manual + Trip + Collection Activity Logs with Vehicle)
+// ✅ Fixes / Adds (v3.8)
+// 1) Manual task creation inserts into pickup_tasks AND staff_tasks Activity Logs (with Vehicle)
+// 2) Activity Logs shows BOTH TRIP + MANUAL (+ optional COLLECTION logs)
+// 3) Manual logs show STAFF (profiles) and VEHICLE (manual input or "MANUAL")
+// 4) ✅ NEW: When Worker/Driver marks a Pickup Task as COLLECTED, app.js creates a COLLECTION log in staff_tasks
+//    (includes vehicle_id if available from latest collection_records OR "UNKNOWN")
+// 5) Fixed profiles lookup (eq("id", assignTo)) and removed duplicate blocks
+//
+// ⚠️ Note:
+// - If your collection_records table does NOT have vehicle_id column, the collection log will show "UNKNOWN" vehicle.
+// - If you want vehicle_id saved in collection_records, add column: vehicle_id text (optional) and update collection.html insert.
+// - staff_tasks must allow inserts for task_type "COLLECTION" (RLS policy should allow).
 
 import { API_URL as RAW_API_URL } from "./config.js";
 import { supabase } from "./supabaseClient.js";
@@ -11,20 +18,14 @@ import { supabase } from "./supabaseClient.js";
 /* =========================
    CONFIG TOGGLES (EDIT IF NEEDED)
 ========================= */
-// If your complaints table DOES NOT have created_by column, set false.
 const HAS_COMPLAINT_CREATED_BY = true;
-
-// If your collection_records table DOES NOT have task_id/bin_id columns, set false.
 const COLLECTION_HAS_TASK_AND_BIN = true;
-
-// ✅ If your collection_records table has staff_task_id column, set true (recommended)
 const COLLECTION_HAS_STAFF_TASK_ID = true;
-
-// ✅ If your staff_tasks table has started_at/completed_at columns, set true (recommended)
 const STAFF_TASK_HAS_TIMESTAMPS = true;
-
-// When collection record exists, do you want to force kg entry in prompt? (optional)
 const REQUIRE_COLLECTED_KG_PROMPT = true;
+
+// ✅ Hide Empty bins in Bin Status list (so collected bins disappear)
+const HIDE_EMPTY_BINS_ON_BINS_PAGE = true;
 
 /* ✅ expose supabase globally */
 window.supabase = supabase;
@@ -209,7 +210,6 @@ async function signUp() {
 
   const userId = data.user.id;
 
-  // Optional backend route (non-blocking)
   if (API_URL) {
     const r = await apiFetch("/api/create-profile", {
       method: "POST",
@@ -293,9 +293,6 @@ window.getSessionUser = async function () {
   return data?.user || null;
 };
 
-/* =========================
-   ✅ SYNC ROLE FROM DB (fixes admin showing worker)
-========================= */
 async function syncProfileToStorage() {
   const { data } = await supabase.auth.getSession();
   const session = data?.session;
@@ -328,7 +325,6 @@ async function protectPage(allowedRoles = null, opts = {}) {
   const { silent = false } = opts || {};
   const page = getCurrentPageName();
 
-  // ✅ Never auto-redirect public auth pages
   if (isPublicAuthPage()) {
     const { data } = await supabase.auth.getSession();
     return !!data?.session;
@@ -343,11 +339,9 @@ async function protectPage(allowedRoles = null, opts = {}) {
     return false;
   }
 
-  // Always sync profile to prevent stale role issues
   const synced = await syncProfileToStorage();
   const role = synced?.role || getStoredRole();
 
-  // If a page wants to restrict by roles explicitly
   if (Array.isArray(allowedRoles) && allowedRoles.length > 0) {
     if (!allowedRoles.includes(role)) {
       if (!silent) window.location.replace("dashboard.html");
@@ -356,7 +350,6 @@ async function protectPage(allowedRoles = null, opts = {}) {
     return true;
   }
 
-  // Otherwise enforce allowed pages by ROLE_ACCESS
   const allowedPages = ROLE_ACCESS[role] || [];
   if (allowedPages.length && !allowedPages.includes(page)) {
     if (!silent) window.location.replace("dashboard.html");
@@ -416,6 +409,36 @@ function initProfileMenu() {
 window.initProfileMenu = initProfileMenu;
 
 /* =========================
+   ✅ PROFILE SAFE GETTER (USED BY ADMIN MODULES)
+========================= */
+async function getMyProfileSafe() {
+  const { data: sess } = await supabase.auth.getSession();
+  const session = sess?.session;
+  if (!session) return null;
+
+  const uid = session.user?.id;
+  if (!uid) return null;
+
+  const { data: p, error } = await supabase
+    .from("profiles")
+    .select("id, role, area, full_name, email")
+    .eq("id", uid)
+    .maybeSingle();
+
+  if (error) return null;
+  if (!p) return null;
+
+  return {
+    id: p.id,
+    role: normalizeRole(p.role),
+    area: p.area || "",
+    full_name: p.full_name || "",
+    email: p.email || session.user?.email || ""
+  };
+}
+window.getMyProfileSafe = getMyProfileSafe;
+
+/* =========================
    PROFILE PAGE LOAD
 ========================= */
 async function loadProfile() {
@@ -473,6 +496,40 @@ async function changePassword() {
 window.changePassword = changePassword;
 
 /* =========================
+   BIN HELPERS ✅
+========================= */
+async function setBinStatusByBinId(binId, status) {
+  const b = (binId || "").trim();
+  if (!b) return { ok: false, error: "Missing bin id" };
+
+  const meId = localStorage.getItem("user_id") || null;
+
+  const { data: found, error: fErr } = await supabase
+    .from("bins")
+    .select("id")
+    .eq("bin_id", b)
+    .limit(1);
+
+  if (fErr) return { ok: false, error: fErr.message };
+
+  if (found?.length) {
+    const { error } = await supabase
+      .from("bins")
+      .update({ status, updated_at: new Date().toISOString(), updated_by: meId })
+      .eq("id", found[0].id);
+    if (error) return { ok: false, error: error.message };
+  } else {
+    const { error } = await supabase
+      .from("bins")
+      .insert([{ bin_id: b, area: "", status, updated_by: meId }]);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  return { ok: true };
+}
+window.setBinStatusByBinId = setBinStatusByBinId;
+
+/* =========================
    CORE ERP: BINS → PICKUP TASKS
 ========================= */
 async function getMyProfileFromStorage() {
@@ -481,6 +538,23 @@ async function getMyProfileFromStorage() {
     role: getStoredRole(),
     area: localStorage.getItem("area"),
   };
+}
+
+/**
+ * ✅ Safe insert helper for pickup_tasks.
+ */
+async function safeInsertPickupTask(payload, fallbackPayload) {
+  let { error } = await supabase.from("pickup_tasks").insert([payload]);
+  if (!error) return { ok: true };
+
+  const msg = (error?.message || "").toLowerCase();
+  if (msg.includes("column") && msg.includes("does not exist") && fallbackPayload) {
+    const r2 = await supabase.from("pickup_tasks").insert([fallbackPayload]);
+    if (r2.error) return { ok: false, error: r2.error.message };
+    return { ok: true, usedFallback: true };
+  }
+
+  return { ok: false, error: error.message };
 }
 
 async function createPickupTaskIfNeeded(binId, area) {
@@ -501,15 +575,16 @@ async function createPickupTaskIfNeeded(binId, area) {
     .from("profiles").select("id")
     .eq("role", "driver").eq("area", area).limit(1);
 
-  const { error } = await supabase.from("pickup_tasks").insert([{
+  const payload = {
     bin_id: binId,
     area,
     assigned_worker_id: workers?.[0]?.id || null,
     assigned_driver_id: drivers?.[0]?.id || null,
     status: "OPEN"
-  }]);
+  };
 
-  if (error) throw new Error(error.message);
+  const r = await safeInsertPickupTask(payload, payload);
+  if (!r.ok) throw new Error(r.error);
 }
 
 async function saveBin() {
@@ -555,11 +630,280 @@ async function saveBin() {
 }
 window.saveBin = saveBin;
 
+/* =========================
+   ✅ ADMIN: ASSIGN BIN TASK (bins.html modal)
+========================= */
+window.openAssignBinModal = async function (binId) {
+  try {
+    const me = await getMyProfileSafe();
+    if (!me || me.role !== "admin") return toast("Only admin can assign.");
+
+    const modal = $("assignBinModal");
+    if (!modal) return toast("Assign modal missing in bins.html");
+
+    $("assignBinId").value = binId;
+
+    const { data: staff, error } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, role, area")
+      .in("role", ["worker", "driver"])
+      .order("full_name", { ascending: true });
+
+    if (error) return toast("Load staff failed: " + error.message);
+
+    const sel = $("assignBinTo");
+    if (sel) {
+      sel.innerHTML = `<option value="">-- Select Staff --</option>`;
+      (staff || []).forEach(u => {
+        const label = `${u.full_name || u.email} (${normalizeRole(u.role)})`;
+        sel.innerHTML += `<option value="${u.id}" data-role="${normalizeRole(u.role)}">${label}</option>`;
+      });
+    }
+
+    if ($("assignBinPriority")) $("assignBinPriority").value = "normal";
+    if ($("assignBinNotes")) $("assignBinNotes").value = "";
+
+    modal.style.display = "flex";
+    document.body.classList.add("modal-open");
+  } catch (e) {
+    console.log(e);
+    toast("Open modal failed: " + (e?.message || e));
+  }
+};
+
+window.closeAssignBinModal = function () {
+  const modal = $("assignBinModal");
+  if (modal) modal.style.display = "none";
+  document.body.classList.remove("modal-open");
+};
+
+window.confirmAssignBin = async function () {
+  try {
+    const me = await getMyProfileSafe();
+    if (!me || me.role !== "admin") return toast("Only admin can assign.");
+
+    const binId = ($("assignBinId")?.value || "").trim();
+    const staffId = ($("assignBinTo")?.value || "").trim();
+    const notes = ($("assignBinNotes")?.value || "").trim();
+    const priority = ($("assignBinPriority")?.value || "normal").trim();
+
+    if (!binId) return toast("Bin ID missing.");
+    if (!staffId) return toast("Select staff.");
+
+    const { data: binRow, error: bErr } = await supabase
+      .from("bins")
+      .select("bin_id, area, status")
+      .eq("bin_id", binId)
+      .maybeSingle();
+
+    if (bErr) return toast("Bin fetch failed: " + bErr.message);
+
+    const staffRole = normalizeRole(
+      $("assignBinTo")?.selectedOptions?.[0]?.getAttribute("data-role") || ""
+    );
+
+    const payload = {
+      bin_id: binId,
+      area: binRow?.area || "",
+      status: "OPEN",
+      assigned_worker_id: staffRole === "worker" ? staffId : null,
+      assigned_driver_id: staffRole === "driver" ? staffId : null,
+      priority,
+      notes,
+      assigned_by: me.id
+    };
+
+    const fallback = {
+      bin_id: binId,
+      area: binRow?.area || "",
+      status: "OPEN",
+      assigned_worker_id: staffRole === "worker" ? staffId : null,
+      assigned_driver_id: staffRole === "driver" ? staffId : null,
+    };
+
+    const r = await safeInsertPickupTask(payload, fallback);
+    if (!r.ok) return toast("Assign failed: " + r.error);
+
+    toast("Assigned ✅ Pickup task created");
+    window.closeAssignBinModal?.();
+
+    try { window.renderBins?.(); } catch {}
+    try { window.renderTasks?.(); } catch {}
+  } catch (e) {
+    console.log(e);
+    toast("Assign failed: " + (e?.message || e));
+  }
+};
+
+/* =========================
+   ✅ ADMIN: MANUAL TASK ASSIGN (staff_vehicle.html)
+========================= */
+window.initAdminManualTaskUI = async function () {
+  try {
+    const card = $("adminManualTaskCard");
+    if (!card) return;
+
+    const me = await getMyProfileSafe();
+    if (!me || me.role !== "admin") {
+      card.style.display = "none";
+      return;
+    }
+
+    card.style.display = "block";
+
+    const { data: staff, error } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, role, area")
+      .in("role", ["worker", "driver"])
+      .order("full_name", { ascending: true });
+
+    if (error) return toast("Load staff failed: " + error.message);
+
+    const sel = $("manualAssignTo");
+    if (sel) {
+      sel.innerHTML = `<option value="">-- Select Staff --</option>`;
+      (staff || []).forEach(u => {
+        const label = `${u.full_name || u.email} (${normalizeRole(u.role)})`;
+        sel.innerHTML += `<option value="${u.id}" data-role="${normalizeRole(u.role)}" data-area="${u.area || ""}">${label}</option>`;
+      });
+    }
+
+    const due = $("manualDueDate");
+    if (due && !due.value) due.value = new Date().toISOString().slice(0, 10);
+  } catch (e) {
+    console.log(e);
+    toast("Init manual task failed: " + (e?.message || e));
+  }
+};
+
+/* ===============================
+   ✅ Helper: create an Activity Log row in staff_tasks (Manual Task)
+================================= */
+async function addActivityLogFromManualTask({
+  logDate,
+  vehicleId = "",
+  assignedTo = null,
+  staffName = "",
+  route = "",
+  shift = "Morning",
+  status = "Assigned",
+  taskId = null,
+}) {
+  const payload = {
+    task_type: "MANUAL",
+    date: logDate,
+    vehicle_id: vehicleId && vehicleId.trim() !== "" ? vehicleId : "MANUAL",
+    assigned_to: assignedTo,
+    staff_name: staffName && staffName.trim() !== "" ? staffName : "Unknown",
+    route: route || "Manual Assignment",
+    shift: shift || "Morning",
+    status: status || "Assigned",
+    task_id: taskId || null,
+    created_at: new Date().toISOString()
+  };
+
+  const { error } = await supabase.from("staff_tasks").insert([payload]);
+  if (error) throw error;
+}
+
+/* ===============================
+   ✅ Admin: Create & Assign Manual Task (pickup_tasks + staff_tasks log)
+================================= */
+window.createManualTask = async function () {
+  try {
+    const me = await getMyProfileSafe();
+    if (!me || me.role !== "admin") return toast("Only admin can create tasks.");
+
+    const assignTo = (document.getElementById("manualAssignTo")?.value || "").trim();
+    const taskType = (document.getElementById("manualTaskType")?.value || "pickup").trim();
+    const binId = (document.getElementById("manualBinId")?.value || "").trim() || null;
+    const route = (document.getElementById("manualRoute")?.value || "").trim();
+    const priority = (document.getElementById("manualPriority")?.value || "normal").trim();
+    const dueDate = (document.getElementById("manualDueDate")?.value || new Date().toISOString().slice(0, 10)).trim();
+    const notes = (document.getElementById("manualNotes")?.value || "").trim();
+
+    // ✅ Optional manual vehicle input (add this input in staff_vehicle.html if you want)
+    // <input id="manualVehicleId" placeholder="Eg: TN-37-WM-1023" />
+    const manualVehicleId = (document.getElementById("manualVehicleId")?.value || "").trim();
+
+    if (!assignTo) return toast("Select staff to assign");
+    if (!route) return toast("Enter Area / Route");
+
+    const role = document.getElementById("manualAssignTo")
+      ?.selectedOptions?.[0]?.getAttribute("data-role") || "worker";
+
+    // 1) Create pickup task
+    const { data: createdTask, error: taskErr } = await supabase
+      .from("pickup_tasks")
+      .insert([{
+        bin_id: binId,
+        area: route,
+        status: "OPEN",
+        assigned_worker_id: role === "worker" ? assignTo : null,
+        assigned_driver_id: role === "driver" ? assignTo : null,
+        priority,
+        due_date: dueDate,
+        notes: notes ? `[${taskType.toUpperCase()}] ${notes}` : `[${taskType.toUpperCase()}]`,
+        assigned_by: me.id
+      }])
+      .select("id")
+      .single();
+
+    if (taskErr) throw taskErr;
+
+    const newTaskId = createdTask?.id || null;
+
+    // 2) Staff name (label + profiles confirmation)
+    const staffLabel =
+      document.getElementById("manualAssignTo")?.selectedOptions?.[0]?.textContent?.trim() || "";
+
+    let staffName = staffLabel.split(" (")[0].trim();
+    if (!staffName) staffName = assignTo;
+
+    const { data: prof, error: pErr } = await supabase
+      .from("profiles")
+      .select("full_name,email")
+      .eq("id", assignTo)
+      .maybeSingle();
+
+    if (!pErr && prof) staffName = prof.full_name || prof.email || staffName;
+
+    // 3) Insert Activity Log row (staff_tasks)
+    await addActivityLogFromManualTask({
+      logDate: dueDate,
+      vehicleId: manualVehicleId,   // blank -> becomes "MANUAL"
+      assignedTo: assignTo,
+      staffName,
+      route,
+      shift: "Morning",
+      status: "Assigned",
+      taskId: newTaskId,
+    });
+
+    toast("Manual task created + added to Activity Logs ✅");
+
+    if (document.getElementById("manualBinId")) document.getElementById("manualBinId").value = "";
+    if (document.getElementById("manualRoute")) document.getElementById("manualRoute").value = "";
+    if (document.getElementById("manualNotes")) document.getElementById("manualNotes").value = "";
+    if (document.getElementById("manualVehicleId")) document.getElementById("manualVehicleId").value = "";
+
+    try { window.renderTrips?.(); } catch {}
+    try { window.renderTasks?.(); } catch {}
+  } catch (e) {
+    console.log(e);
+    toast("Create task failed: " + (e?.message || e));
+  }
+};
+
+/* =========================
+   BINS LIST RENDER (UPDATED: admin Assign button)
+========================= */
 async function renderBins() {
   const tbody = $("binsBody");
   if (!tbody) return;
 
   const q = ($("searchBins")?.value || "").toLowerCase();
+  const role = getStoredRole();
 
   const { data, error } = await supabase
     .from("bins")
@@ -570,36 +914,50 @@ async function renderBins() {
 
   const pill = (s) => s === "Full" ? "bad" : (s === "Half" ? "warn" : "good");
 
-  const list = (data || []).filter(x =>
+  let list = (data || []).filter(x =>
     (x.bin_id || "").toLowerCase().includes(q) ||
     (x.area || "").toLowerCase().includes(q) ||
     (x.status || "").toLowerCase().includes(q)
   );
 
-  tbody.innerHTML = list.map(x => `
-    <tr>
-      <td>${x.bin_id}</td>
-      <td>${x.area}</td>
-      <td><span class="pill ${pill(x.status)}">${x.status}</span></td>
-      <td>${x.updated_at ? new Date(x.updated_at).toLocaleString() : ""}</td>
-    </tr>
-  `).join("");
+  if (HIDE_EMPTY_BINS_ON_BINS_PAGE) {
+    list = list.filter(x => String(x.status || "").toLowerCase() !== "empty");
+  }
+
+  const isAdmin = role === "admin";
+
+  tbody.innerHTML = list.map(x => {
+    const assignBtn = isAdmin
+      ? `<td><button class="btn" onclick="openAssignBinModal('${String(x.bin_id).replace(/'/g, "\\'")}')">Assign</button></td>`
+      : "";
+
+    return `
+      <tr>
+        <td>${x.bin_id}</td>
+        <td>${x.area}</td>
+        <td><span class="pill ${pill(x.status)}">${x.status}</span></td>
+        <td>${x.updated_at ? new Date(x.updated_at).toLocaleString() : ""}</td>
+        ${assignBtn}
+      </tr>
+    `;
+  }).join("");
 }
 window.renderBins = renderBins;
 
 /* =========================
-   ✅ STAFF TASKS (Trip logs → appear in My Tasks)
+   STAFF TASKS (TRIP)
 ========================= */
 async function findUserIdByNameOrEmail(text) {
   const key = (text || "").trim();
   if (!key) return null;
 
   if (key.includes("@")) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .select("id")
       .ilike("email", key)
       .maybeSingle();
+    if (error) return null;
     return data?.id || null;
   }
 
@@ -632,7 +990,7 @@ async function saveTrip() {
 
     const assigned_to = await findUserIdByNameOrEmail(staff_name);
     if (!assigned_to) {
-      toast("Staff not found. Enter exact Full Name or Email (must exist in Users).");
+      toast("Staff not found. Enter exact Full Name (must exist in Users).");
       return;
     }
 
@@ -644,10 +1002,10 @@ async function saveTrip() {
       route,
       shift,
       status,
-      created_by: session.user.id
+      created_by: session.user.id,
+      staff_name
     };
 
-    // reset timestamps if admin assigns "Assigned"
     if (STAFF_TASK_HAS_TIMESTAMPS && status === "Assigned") {
       payload.started_at = null;
       payload.completed_at = null;
@@ -661,7 +1019,7 @@ async function saveTrip() {
       return;
     }
 
-    toast("Trip Assigned ✅ (will appear in Activity Logs + staff My Tasks)");
+    toast("Trip Assigned ✅");
     await window.renderTrips?.();
   } catch (e) {
     console.log(e);
@@ -670,9 +1028,7 @@ async function saveTrip() {
 }
 window.saveTrip = saveTrip;
 
-/* ✅ Helper: get the correct tbody id on Staff & Vehicle page */
 function getTripTbody() {
-  // Your HTML might use any of these ids. We support all.
   return (
     document.getElementById("tripsBody") ||
     document.getElementById("activityBody") ||
@@ -682,7 +1038,6 @@ function getTripTbody() {
   );
 }
 
-/* ✅ renderTrips now shows staff name by mapping profiles */
 async function renderTrips() {
   const tbody = getTripTbody();
   if (!tbody) return;
@@ -690,21 +1045,20 @@ async function renderTrips() {
   const q = (document.getElementById("searchTrips")?.value || "").toLowerCase().trim();
 
   const selectCols = STAFF_TASK_HAS_TIMESTAMPS
-    ? "id,date,vehicle_id,route,shift,status,created_at,assigned_to,started_at,completed_at"
-    : "id,date,vehicle_id,route,shift,status,created_at,assigned_to";
+    ? "id,task_type,date,vehicle_id,route,shift,status,created_at,assigned_to,staff_name,task_id,started_at,completed_at"
+    : "id,task_type,date,vehicle_id,route,shift,status,created_at,assigned_to,staff_name,task_id";
 
   const { data, error } = await supabase
     .from("staff_tasks")
     .select(selectCols)
-    .eq("task_type", "TRIP")
+    .in("task_type", ["TRIP", "MANUAL", "COLLECTION"])
     .order("created_at", { ascending: false });
 
   if (error) { console.log(error); toast("Fetch failed: " + error.message); return; }
 
   const rows = (data || []);
-
-  // ✅ Map assigned_to -> full_name
   const ids = [...new Set(rows.map(r => r.assigned_to).filter(Boolean))];
+
   let nameMap = {};
   if (ids.length) {
     const { data: profs, error: pErr } = await supabase
@@ -720,8 +1074,8 @@ async function renderTrips() {
   }
 
   const filtered = rows.filter(r => {
-    const staffLabel = nameMap[r.assigned_to] || r.assigned_to || "";
-    const s = `${r.date} ${r.vehicle_id} ${staffLabel} ${r.route} ${r.shift} ${r.status}`.toLowerCase();
+    const staffLabel = nameMap[r.assigned_to] || r.staff_name || r.assigned_to || "";
+    const s = `${r.task_type || ""} ${r.date} ${r.vehicle_id} ${staffLabel} ${r.route} ${r.shift} ${r.status} ${r.task_id || ""}`.toLowerCase();
     return !q || s.includes(q);
   });
 
@@ -730,10 +1084,14 @@ async function renderTrips() {
     return;
   }
 
-  // ✅ Build HTML: match your screenshot columns:
-  // DATE | VEHICLE | STAFF | ROUTE | SHIFT | STATUS | TASK ID | ACTIONS
   tbody.innerHTML = filtered.map(r => {
-    const staffLabel = nameMap[r.assigned_to] || (r.assigned_to ? (r.assigned_to.slice(0, 6) + "…") : "-");
+    const staffLabel =
+      nameMap[r.assigned_to] ||
+      r.staff_name ||
+      (r.assigned_to ? (r.assigned_to.slice(0, 6) + "…") : "-");
+
+    const showTask = r.task_id || r.id || "";
+
     return `
       <tr>
         <td>${r.date || ""}</td>
@@ -742,7 +1100,7 @@ async function renderTrips() {
         <td>${r.route || ""}</td>
         <td>${r.shift || ""}</td>
         <td>${r.status || ""}</td>
-        <td>${r.id || ""}</td>
+        <td>${showTask}</td>
         <td>
           <button class="btn red" onclick="deleteTripLog('${r.id}')">Delete</button>
         </td>
@@ -752,7 +1110,6 @@ async function renderTrips() {
 }
 window.renderTrips = renderTrips;
 
-/* ✅ Optional delete for trip logs (Activity Logs) */
 async function deleteTripLog(id) {
   const role = getStoredRole();
   if (role !== "admin") {
@@ -776,40 +1133,66 @@ async function deleteTripLog(id) {
 }
 window.deleteTripLog = deleteTripLog;
 
-/* ✅ Trip status update:
-   Assigned -> Started sets started_at
-   Started  -> Completed sets completed_at and redirects to Collection (with staff_task_id)
-*/
+/* =========================
+   Trip status update
+========================= */
 async function updateStaffTaskStatus(taskId, newStatus) {
-  const payload = { status: newStatus };
+  try {
+    if (!taskId) return { ok: false, error: "Missing taskId" };
 
-  if (STAFF_TASK_HAS_TIMESTAMPS) {
-    if (newStatus === "Started") payload.started_at = new Date().toISOString();
-    if (newStatus === "Completed") payload.completed_at = new Date().toISOString();
-  }
+    const role = (localStorage.getItem("role") || "").toLowerCase();
+    const userId = localStorage.getItem("user_id");
 
-  const { error } = await supabase
-    .from("staff_tasks")
-    .update(payload)
-    .eq("id", taskId);
+    const payload = { status: newStatus };
 
-  if (error) { toast("Update failed: " + error.message); return; }
+    if (STAFF_TASK_HAS_TIMESTAMPS) {
+      if (newStatus === "Started") payload.started_at = new Date().toISOString();
+      if (newStatus === "Completed") payload.completed_at = new Date().toISOString();
+    }
 
-  toast("Updated ✅");
-  await window.renderTasks?.();
-  await window.renderTrips?.();
+    let q = supabase.from("staff_tasks").update(payload).eq("id", taskId);
+    if (role !== "admin") q = q.eq("assigned_to", userId);
 
-  // ✅ When completed, push user to Collection and pass task id
-  if (newStatus === "Completed") {
-    setTimeout(() => {
-      window.location = `collection.html?staff_task_id=${encodeURIComponent(taskId)}`;
-    }, 500);
+    const { data, error } = await q.select("id,status,started_at,completed_at");
+
+    if (error) {
+      console.log("updateStaffTaskStatus ERROR:", error);
+      window.toast?.("Update failed: " + error.message);
+      return { ok: false, error: error.message };
+    }
+
+    if (!data || data.length === 0) {
+      window.toast?.("No row updated ❌ (not assigned / RLS blocks UPDATE)");
+      return { ok: false, error: "No row updated" };
+    }
+
+    const row = data[0];
+    window.toast?.(`Trip ${row.status} ✅`);
+
+    try { await window.renderTrips?.(); } catch {}
+    try { await window.renderTasks?.(); } catch {}
+
+    return { ok: true, data: row };
+  } catch (e) {
+    console.log("updateStaffTaskStatus EX:", e);
+    window.toast?.("Update failed: " + (e?.message || e));
+    return { ok: false, error: e?.message || String(e) };
   }
 }
 window.updateStaffTaskStatus = updateStaffTaskStatus;
 
+async function completeTripToCollection(taskId) {
+  const r = await updateStaffTaskStatus(taskId, "Completed");
+  if (!r.ok) return;
+
+  setTimeout(() => {
+    window.location = `collection.html?staff_task_id=${encodeURIComponent(taskId)}&mode=trip`;
+  }, 350);
+}
+window.completeTripToCollection = completeTripToCollection;
+
 /* =========================
-   ✅ MANDATORY CHECK HELPERS
+   Mandatory check helpers
 ========================= */
 async function hasCollectionForTask(taskId) {
   if (!taskId) return false;
@@ -828,167 +1211,40 @@ async function hasCollectionForTask(taskId) {
 window.hasCollectionForTask = hasCollectionForTask;
 
 /* =========================
-   MY TASKS (Pickup + Trip)
+   TASKS BUTTONS ✅ (EXPOSED)
 ========================= */
-function getTaskFiltersFromDOM() {
-  const q = (($("searchTasks")?.value || $("searchMyTasks")?.value || "") + "").toLowerCase().trim();
-  const status = ($("filterStatus")?.value || $("taskStatusFilter")?.value || "").trim();
-  const priority = ($("filterPriority")?.value || "").trim();
-  return { q, status, priority };
-}
-
-function statusMatchesFilter(taskStatus, filterStatus) {
-  if (!filterStatus) return true;
-
-  const s = String(taskStatus || "").trim().toLowerCase();
-  const f = String(filterStatus || "").trim().toLowerCase();
-
-  if (s === f) return true;
-
-  const map = {
-    pending: ["open", "assigned"],
-    assigned: ["assigned", "open"],
-    in_progress: ["started", "in progress"],
-    collected: ["collected"],
-    delivered: ["delivered"],
-    received: ["received"],
-    recycled: ["recycled"],
-    completed: ["completed", "done"]
-  };
-
-  const allowed = map[f];
-  if (!allowed) return false;
-  return allowed.includes(s);
-}
-
-async function loadMyTasks() {
-  const tbody = $("tasksBody");
-  if (!tbody) return [];
-
-  const role = getStoredRole();
-  const userId = localStorage.getItem("user_id");
-
-  // Pickup tasks
-  let pickupQuery = supabase
-    .from("pickup_tasks")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (role === "worker" || role === "driver") {
-    pickupQuery = pickupQuery.or(`assigned_worker_id.eq.${userId},assigned_driver_id.eq.${userId}`);
-  }
-
-  const { data: pickup, error: pErr } = await pickupQuery;
-  if (pErr) { toast(pErr.message); return []; }
-
-  // Trip tasks
-  let staffQuery = supabase
-    .from("staff_tasks")
-    .select("id,task_type,date,vehicle_id,route,shift,status,created_at,assigned_to,started_at,completed_at")
-    .order("created_at", { ascending: false });
-
-  if (role !== "admin") staffQuery = staffQuery.eq("assigned_to", userId);
-
-  const { data: staffTasks, error: sErr } = await staffQuery;
-  if (sErr) console.log("staff_tasks fetch:", sErr);
-
-  const pickupRows = (pickup || []).map(t => ({
-    kind: "PICKUP",
-    id: t.id,
-    created_at: t.created_at || null,
-    priority: t.priority || "High",
-    col1: `Bin: ${t.bin_id}`,
-    col2: `Area: ${t.area}`,
-    assigned: [
-      t.assigned_worker_id ? `W:${t.assigned_worker_id.slice(0, 6)}…` : "",
-      t.assigned_driver_id ? `D:${t.assigned_driver_id.slice(0, 6)}…` : ""
-    ].filter(Boolean).join(" "),
-    status: t.status,
-    action: pickupActionButton(t, role)
-  }));
-
-  const tripRows = (staffTasks || [])
-    .filter(t => t.task_type === "TRIP")
-    .map(t => ({
-      kind: "TRIP",
-      id: t.id,
-      created_at: t.created_at || null,
-      priority: t.priority || "Medium",
-      col1: `Trip: ${t.vehicle_id}`,
-      col2: `${t.route} | ${t.shift} | ${t.date}`,
-      assigned: t.assigned_to ? `${t.assigned_to.slice(0, 6)}…` : "-",
-      status: t.status,
-      action: tripActionButton(t, role)
-    }));
-
-  return [...tripRows, ...pickupRows];
-}
-window.loadMyTasks = loadMyTasks;
-
-async function renderTasks() {
-  const tbody = $("tasksBody");
-  if (!tbody) return;
-
-  const all = await loadMyTasks();
-  const { q, status, priority } = getTaskFiltersFromDOM();
-
-  let filtered = (all || []);
-
-  if (q) {
-    filtered = filtered.filter(x => {
-      const blob = `${x.kind} ${x.col1} ${x.col2} ${x.assigned} ${x.status} ${x.priority}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }
-
-  if (status) filtered = filtered.filter(x => statusMatchesFilter(x.status, status));
-  if (priority) filtered = filtered.filter(x => String(x.priority || "").toLowerCase() === String(priority).toLowerCase());
-
-  window.__tasksCount = filtered.length;
-
-  const thCount = document.querySelectorAll("table.table thead th").length;
-
-  if (thCount >= 7) {
-    tbody.innerHTML = filtered.map(x => `
-      <tr>
-        <td>${x.created_at ? new Date(x.created_at).toLocaleString() : ""}</td>
-        <td>${x.kind}</td>
-        <td>${x.col1} <div class="sub" style="margin:0;">${x.col2}</div></td>
-        <td>${x.assigned || "-"}</td>
-        <td>${x.priority || "-"}</td>
-        <td>${x.status || ""}</td>
-        <td>${x.action}</td>
-      </tr>
-    `).join("");
-  } else {
-    tbody.innerHTML = filtered.map(x => `
-      <tr>
-        <td>${x.col1}</td>
-        <td>${x.col2}</td>
-        <td>${x.status}</td>
-        <td>${x.action}</td>
-      </tr>
-    `).join("");
-  }
-}
-window.renderTasks = renderTasks;
-
 function tripActionButton(t, role) {
   if (role !== "admin") {
     if (t.status === "Assigned") {
-      return `<button class="btn" onclick="updateStaffTaskStatus('${t.id}','Started')">Mark Started</button>`;
+      return `<button class="btn" onclick="updateStaffTaskStatus('${t.id}','Started')">Work Started</button>`;
     }
     if (t.status === "Started") {
-      return `<button class="btn" onclick="updateStaffTaskStatus('${t.id}','Completed')">Mark Completed</button>`;
+      return `<button class="btn" onclick="completeTripToCollection('${t.id}')">Work Completed</button>`;
     }
     return "✅ Done";
   }
   return "-";
 }
+window.tripActionButton = tripActionButton;
+
+// ✅ Collection shortcut button
+function goToCollectionForPickup(taskId, binId, area = "") {
+  const q = new URLSearchParams();
+  if (taskId) q.set("task_id", taskId);
+  if (binId) q.set("bin_id", binId);
+  if (area) q.set("area", area);
+  q.set("mode", "pickup");
+  q.set("autofill", "1");
+  window.location = `collection.html?${q.toString()}`;
+}
+window.goToCollectionForPickup = goToCollectionForPickup;
 
 function pickupActionButton(t, role) {
-  if (role === "worker" && t.status === "OPEN")
-    return `<button class="btn" onclick="markCollected('${t.id}')">Mark Collected</button>`;
+  if ((role === "worker" || role === "driver") && t.status === "OPEN") {
+    const btn1 = `<button class="btn" onclick="goToCollectionForPickup('${t.id}','${t.bin_id || ""}','${(t.area || "").replaceAll("'", "\\'")}')">Collection</button>`;
+    const btn2 = `<button class="btn" style="margin-left:8px;" onclick="markCollected('${t.id}')">Mark Collected</button>`;
+    return `${btn1}${btn2}`;
+  }
 
   if (role === "driver" && t.status === "COLLECTED")
     return `<button class="btn" onclick="markDelivered('${t.id}')">Mark Delivered</button>`;
@@ -1001,13 +1257,122 @@ function pickupActionButton(t, role) {
 
   return "-";
 }
+window.pickupActionButton = pickupActionButton;
 
-/* ✅ Mandatory enforcement (frontend) */
+/* =========================
+   ✅ COLLECTION LOG HELPERS (NEW)
+========================= */
+async function addCollectionActivityLog({ date, vehicle_id, staff_id, staff_name, route, task_id }) {
+  const payload = {
+    task_type: "COLLECTION",
+    date: date || new Date().toISOString().slice(0, 10),
+    vehicle_id: (vehicle_id && vehicle_id.trim()) ? vehicle_id.trim() : "UNKNOWN",
+    assigned_to: staff_id || null,
+    staff_name: staff_name || null,
+    route: route || null,
+    shift: "-",
+    status: "Collected",
+    task_id: task_id || null,
+    created_at: new Date().toISOString()
+  };
+
+  const { error } = await supabase.from("staff_tasks").insert([payload]);
+  if (error) throw error;
+}
+window.addCollectionActivityLog = addCollectionActivityLog;
+
+// Try to read vehicle_id from latest collection_records (if the column exists).
+async function getLatestCollectionVehicleForPickupTask(taskId) {
+  try {
+    // Try with vehicle_id column
+    const r1 = await supabase
+      .from("collection_records")
+      .select("vehicle_id,created_at")
+      .eq("task_id", taskId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!r1.error) {
+      const v = r1.data?.[0]?.vehicle_id;
+      return (v && String(v).trim()) ? String(v).trim() : null;
+    }
+
+    // If column doesn't exist, ignore
+    const msg = (r1.error?.message || "").toLowerCase();
+    if (msg.includes("column") && msg.includes("does not exist")) return null;
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function createCollectionLogForPickupTask(taskId) {
+  try {
+    if (!taskId) return;
+
+    // pickup_tasks gives area + assigned staff
+    const { data: task, error: tErr } = await supabase
+      .from("pickup_tasks")
+      .select("id,area,assigned_worker_id,assigned_driver_id")
+      .eq("id", taskId)
+      .maybeSingle();
+
+    if (tErr || !task) return;
+
+    const staffId = task.assigned_worker_id || task.assigned_driver_id || null;
+
+    let staffName = null;
+    if (staffId) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name,email")
+        .eq("id", staffId)
+        .maybeSingle();
+
+      staffName = prof?.full_name || prof?.email || null;
+    }
+
+    const vehicle = await getLatestCollectionVehicleForPickupTask(taskId);
+
+    await addCollectionActivityLog({
+      date: new Date().toISOString().slice(0, 10),
+      vehicle_id: vehicle || "UNKNOWN",
+      staff_id: staffId,
+      staff_name: staffName,
+      route: task.area || "",
+      task_id: taskId
+    });
+
+    // refresh logs if on staff_vehicle.html
+    try { await window.renderTrips?.(); } catch {}
+  } catch (e) {
+    console.log("createCollectionLogForPickupTask error:", e);
+  }
+}
+
+/* =========================
+   Pickup workflow (status + BIN sync) ✅
+========================= */
 async function markCollected(taskId) {
   const ok = await hasCollectionForTask(taskId);
   if (!ok) {
-    toast("❌ Collection entry is mandatory. Please save in Collection page first.");
-    setTimeout(() => { window.location = "collection.html"; }, 700);
+    const { data: taskRow, error: tErr } = await supabase
+      .from("pickup_tasks")
+      .select("id,bin_id,area")
+      .eq("id", taskId)
+      .maybeSingle();
+
+    if (tErr) {
+      toast("❌ Collection entry required. (Task fetch failed: " + tErr.message + ")");
+      setTimeout(() => { window.location = "collection.html"; }, 700);
+      return;
+    }
+
+    toast("❌ Save Collection entry first. Opening Collection page...");
+    setTimeout(() => {
+      goToCollectionForPickup(taskId, taskRow?.bin_id || "", taskRow?.area || "");
+    }, 700);
     return;
   }
 
@@ -1017,6 +1382,17 @@ async function markCollected(taskId) {
     if (kgRaw === null) return;
     kg = Number(kgRaw);
     if (Number.isNaN(kg) || kg <= 0) { toast("Enter valid collected kg"); return; }
+  }
+
+  const { data: taskRow, error: tErr } = await supabase
+    .from("pickup_tasks")
+    .select("id,bin_id")
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (tErr) {
+    toast("Fetch failed: " + tErr.message);
+    return;
   }
 
   const payload = {
@@ -1030,10 +1406,24 @@ async function markCollected(taskId) {
     .update(payload)
     .eq("id", taskId);
 
-  if (error) toast(error.message);
-  else toast("Collected ✅");
+  if (error) {
+    toast(error.message);
+    return;
+  }
 
-  window.renderTasks?.();
+  // ✅ Once collected -> bin becomes Empty
+  if (taskRow?.bin_id) {
+    const r = await setBinStatusByBinId(taskRow.bin_id, "Empty");
+    if (!r.ok) console.log("Bin status update failed:", r.error);
+  }
+
+  // ✅ NEW: Add COLLECTION log into staff_tasks (with vehicle if available)
+  await createCollectionLogForPickupTask(taskId);
+
+  toast("Collected ✅ Bin marked Empty ✅ (Activity Log updated)");
+
+  try { window.renderBins?.(); } catch {}
+  try { window.renderTasks?.(); } catch {}
 }
 window.markCollected = markCollected;
 
@@ -1170,234 +1560,7 @@ async function updateUser(userId) {
 window.updateUser = updateUser;
 
 /* =========================
-   COLLECTION MODULE
-========================= */
-async function saveCollection() {
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session) {
-    toast("Login required");
-    window.location = "index.html";
-    return;
-  }
-
-  const date = $("date")?.value;
-  const area = ($("area")?.value || "").trim();
-  const type = $("type")?.value;
-  const qtyRaw = $("qty")?.value;
-  const qty = Number(qtyRaw);
-
-  const taskId = (($("taskId")?.value || "").trim() || null);
-  const binId = (($("binId")?.value || "").trim() || null);
-
-  // ✅ get staff_task_id from URL (when coming from Trip completion)
-  const staffTaskIdFromUrl = new URLSearchParams(window.location.search).get("staff_task_id");
-  const staff_task_id = (staffTaskIdFromUrl || "").trim() || null;
-
-  if (!date || !area || !type || !qtyRaw || Number.isNaN(qty) || qty <= 0) {
-    toast("Fill all fields (Qty must be > 0)");
-    return;
-  }
-
-  const payload = {
-    user_id: session.user.id,
-    date,
-    area,
-    waste_type: type,
-    quantity_kg: qty
-  };
-
-  if (COLLECTION_HAS_TASK_AND_BIN) {
-    payload.task_id = taskId;
-    payload.bin_id = binId;
-  }
-
-  if (COLLECTION_HAS_STAFF_TASK_ID) {
-    payload.staff_task_id = staff_task_id; // can be null
-  }
-
-  const { error } = await supabase
-    .from("collection_records")
-    .insert([payload]);
-
-  if (error) {
-    console.log(error);
-    toast("Save failed: " + error.message);
-    return;
-  }
-
-  if ($("area")) $("area").value = "";
-  if ($("qty")) $("qty").value = "";
-  if ($("binId")) $("binId").value = "";
-  if ($("taskId")) $("taskId").value = "";
-
-  toast("Collection Saved ✅");
-  await window.renderCollections?.();
-}
-window.saveCollection = saveCollection;
-
-async function renderCollections() {
-  const tbody = $("collectionsBody");
-  if (!tbody) return;
-
-  const q = ($("searchCollections")?.value || "").toLowerCase().trim();
-
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return;
-
-  // ✅ build select columns based on toggles
-  let cols = "id,date,area,waste_type,quantity_kg,created_at";
-  if (COLLECTION_HAS_TASK_AND_BIN) cols += ",task_id,bin_id";
-  if (COLLECTION_HAS_STAFF_TASK_ID) cols += ",staff_task_id";
-
-  const { data, error } = await supabase
-    .from("collection_records")
-    .select(cols)
-    .eq("user_id", session.user.id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.log(error);
-    toast("Fetch failed: " + error.message);
-    return;
-  }
-
-  const list = (data || []).filter(r => {
-    const d = String(r.date || "").toLowerCase();
-    const a = String(r.area || "").toLowerCase();
-    const t = String(r.waste_type || "").toLowerCase();
-    const tid = String(r.task_id || "").toLowerCase();
-    const bid = String(r.bin_id || "").toLowerCase();
-    const stid = String(r.staff_task_id || "").toLowerCase();
-    return !q || d.includes(q) || a.includes(q) || t.includes(q) || tid.includes(q) || bid.includes(q) || stid.includes(q);
-  });
-
-  tbody.innerHTML = list.map(r => `
-    <tr>
-      <td>${r.date || ""}</td>
-      <td>${r.area || ""}</td>
-      <td>${r.waste_type || ""}</td>
-      <td>${r.quantity_kg ?? ""}</td>
-      <td>
-        <button class="btn red" onclick="deleteCollection('${r.id}')">Delete</button>
-      </td>
-    </tr>
-  `).join("");
-}
-window.renderCollections = renderCollections;
-
-async function deleteCollection(id) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return;
-
-  const { error } = await supabase
-    .from("collection_records")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", session.user.id);
-
-  if (error) {
-    console.log(error);
-    toast("Delete failed: " + error.message);
-    return;
-  }
-
-  toast("Deleted ✅");
-  await window.renderCollections?.();
-}
-window.deleteCollection = deleteCollection;
-
-/* =========================
-   RECYCLING MODULE
-========================= */
-async function saveRecycle() {
-  try {
-    const { data: sessData } = await supabase.auth.getSession();
-    const session = sessData?.session;
-    if (!session) {
-      toast("Login required");
-      window.location = "index.html";
-      return;
-    }
-
-    const date = $("rdate")?.value;
-    const waste_type = $("rtype")?.value;
-    const input_kg = Number($("input")?.value);
-    const recycled_kg = Number($("recycled")?.value);
-    const landfill_kg = Number($("landfill")?.value);
-
-    if (!date || !waste_type) { toast("Select date and waste type"); return; }
-    if ([input_kg, recycled_kg, landfill_kg].some(n => Number.isNaN(n))) { toast("Enter valid numbers"); return; }
-    if (input_kg < 0 || recycled_kg < 0 || landfill_kg < 0) { toast("Values cannot be negative"); return; }
-    if (recycled_kg + landfill_kg > input_kg) { toast("Recycled + Landfill should not exceed Input"); return; }
-
-    const { error } = await supabase.from("recycling").insert([{
-      date,
-      waste_type,
-      input_kg,
-      recycled_kg,
-      landfill_kg
-    }]);
-
-    if (error) {
-      console.log("recycling insert error:", error);
-      toast("Save failed: " + error.message);
-      return;
-    }
-
-    toast("Saved ✅");
-    if ($("input")) $("input").value = "";
-    if ($("recycled")) $("recycled").value = "";
-    if ($("landfill")) $("landfill").value = "";
-  } catch (e) {
-    console.log(e);
-    toast("Save error: " + (e?.message || e));
-  }
-}
-window.saveRecycle = saveRecycle;
-
-async function renderRecycling() {
-  const tbody = $("recyclingBody");
-  if (!tbody) return;
-
-  const q = ($("searchRecycling")?.value || "").toLowerCase().trim();
-
-  const { data: sessData } = await supabase.auth.getSession();
-  const session = sessData?.session;
-  if (!session) return;
-
-  const { data, error } = await supabase
-    .from("recycling")
-    .select("date, waste_type, input_kg, recycled_kg, landfill_kg, created_at")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.log("recycling select error:", error);
-    toast("Fetch failed: " + error.message);
-    tbody.innerHTML = "";
-    return;
-  }
-
-  const filtered = (data || []).filter(r => {
-    const d = String(r.date || "").toLowerCase();
-    const t = String(r.waste_type || "").toLowerCase();
-    return !q || d.includes(q) || t.includes(q);
-  });
-
-  tbody.innerHTML = filtered.map(r => `
-    <tr>
-      <td>${r.date || ""}</td>
-      <td>${r.waste_type || ""}</td>
-      <td>${r.input_kg ?? ""}</td>
-      <td>${r.recycled_kg ?? ""}</td>
-      <td>${r.landfill_kg ?? ""}</td>
-    </tr>
-  `).join("");
-}
-window.renderRecycling = renderRecycling;
-
-/* =========================
-   ✅ COMPLAINTS MODULE
+   COMPLAINTS MODULE
 ========================= */
 async function saveComplaint() {
   try {
@@ -1553,7 +1716,6 @@ window.renderDashboard = renderDashboard;
 document.addEventListener("DOMContentLoaded", async () => {
   const page = getCurrentPageName();
 
-  // Auth pages: no protection, no role menu, no nav highlight
   if (page === "index.html" || page === "register.html" || page === "") return;
 
   try { window.applyRoleMenu?.(); } catch {}
@@ -1563,30 +1725,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const path = window.location.pathname;
 
-  if (path.includes("collection.html")) {
-    window.renderCollections?.();
-    $("saveCollectionBtn")?.addEventListener("click", async () => {
-      try { await window.saveCollection(); }
-      catch (e) { console.log(e); toast(e?.message || "Save error"); }
-    });
-    $("searchCollections")?.addEventListener("input", () => window.renderCollections?.());
-  }
-
-  if (path.includes("recycling.html")) {
-    window.renderRecycling?.();
-    $("saveRecycleBtn")?.addEventListener("click", async () => {
-      try {
-        await window.saveRecycle();
-        await window.renderRecycling();
-      } catch (e) {
-        console.log(e);
-        toast(e?.message || "Save error");
-      }
-    });
-    $("searchRecycling")?.addEventListener("input", () => window.renderRecycling?.());
-  }
-
   if (path.includes("staff_vehicle.html")) {
+    try { await window.initAdminManualTaskUI?.(); } catch {}
+
     window.renderTrips?.();
     $("saveTripBtn")?.addEventListener("click", async () => {
       await window.saveTrip?.();
@@ -1606,11 +1747,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (path.includes("dashboard.html")) window.renderDashboard?.();
   if (path.includes("bins.html")) window.renderBins?.();
 
-  if (path.includes("tasks.html")) {
-    if (window.renderTasks) window.renderTasks?.();
-    else window.loadMyTasks?.();
-  }
-
   if (path.includes("users.html")) window.loadUsers?.();
   if (path.includes("profile.html")) window.loadProfile?.();
 
@@ -1618,6 +1754,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 /* =========================
-   ✅ Named exports (fixes "does not provide an export named ...")
+   ✅ Named exports
 ========================= */
 export { protectPage, applyRoleMenu, setActiveNav, signIn, signUp, logout };

@@ -87,19 +87,31 @@
           </select>
         </div>
 
+        <!-- ✅ NEW: Select from COLLECTED tasks -->
+        <div class="full">
+          <div class="label">Select Collected Task (auto-fill Input kg)</div>
+          <select id="collectedTaskSelect">
+            <option value="">-- Select COLLECTED task --</option>
+          </select>
+          <div class="sub" style="margin-top:6px; opacity:.85;">
+            This list shows <b>pickup_tasks</b> with status <b>COLLECTED</b>. Selecting one will auto-fill <b>Input (kg)</b>
+            using <b>collected_kg</b>.
+          </div>
+        </div>
+
         <div>
           <div class="label">Input (kg)</div>
-          <input type="number" id="input" placeholder="Eg: 100">
+          <input type="number" id="input" placeholder="Auto-filled from collected task" min="0" step="0.01">
         </div>
 
         <div>
           <div class="label">Recycled (kg)</div>
-          <input type="number" id="recycled" placeholder="Eg: 70">
+          <input type="number" id="recycled" placeholder="Eg: 70" min="0" step="0.01">
         </div>
 
         <div>
           <div class="label">Sent to Landfill (kg)</div>
-          <input type="number" id="landfill" placeholder="Eg: 30">
+          <input type="number" id="landfill" placeholder="Eg: 30" min="0" step="0.01">
         </div>
 
         <div class="full">
@@ -143,6 +155,13 @@
 
 <!-- PAGE INIT -->
 <script type="module">
+  function todayISO() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+
   window.addEventListener("DOMContentLoaded", async () => {
     // 1) Hide menu immediately
     window.applyRoleMenu?.();
@@ -154,18 +173,36 @@
     window.setActiveNav?.();
     window.initProfileMenu?.();
 
-    // Load records + wire events (app.js also auto-wires, but this keeps it safe)
+    // default date
+    const rdate = document.getElementById("rdate");
+    if (rdate && !rdate.value) rdate.value = todayISO();
+
+    // ✅ Load dropdown of COLLECTED pickup tasks & bind autofill
+    await window.loadCollectedTasksForRecycling?.();
+    window.bindCollectedTaskAutofill?.();
+
+    // Load records
     await window.renderRecycling?.();
 
-    
+    // Save button (app.js also binds sometimes, but we keep explicit here)
+    document.getElementById("saveRecycleBtn")?.addEventListener("click", async () => {
+      try {
+        await window.saveRecycle?.();
+        await window.renderRecycling?.();
+        await window.loadCollectedTasksForRecycling?.(); // refresh list
+      } catch (e) {
+        console.log(e);
+        window.toast?.(e?.message || "Save error");
+      }
+    });
 
     document.getElementById("searchRecycling")?.addEventListener("input", () => {
       window.renderRecycling?.();
     });
 
     // Logout
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
   });
 </script>
 
