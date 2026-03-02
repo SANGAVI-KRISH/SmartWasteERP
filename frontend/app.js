@@ -1,22 +1,19 @@
-// app.js (FULL UPDATED v3.8 - Manual + Trip + Collection Activity Logs with Vehicle)
-// ✅ Fixes / Adds (v3.8)
-// 1) Manual task creation inserts into pickup_tasks AND staff_tasks Activity Logs (with Vehicle)
-// 2) Activity Logs shows BOTH TRIP + MANUAL (+ optional COLLECTION logs)
-// 3) Manual logs show STAFF (profiles) and VEHICLE (manual input or "MANUAL")
-// 4) ✅ NEW: When Worker/Driver marks a Pickup Task as COLLECTED, app.js creates a COLLECTION log in staff_tasks
-//    (includes vehicle_id if available from latest collection_records OR "UNKNOWN")
-// 5) Fixed profiles lookup (eq("id", assignTo)) and removed duplicate blocks
+// app.js (FULL UPDATED v3.9.0)
+// ✅ v3.9.0 changes
+// 1) ✅ Realtime helper for pickup_tasks (used by Recycling dropdown to update instantly)
+// 2) ✅ Whenever pickup task becomes COLLECTED / RECYCLED → broadcast refresh event + localStorage ping
+// 3) ✅ Global logout button wiring (#logoutBtnTop / #logoutBtnSidebar) on every page
+// 4) ✅ Profile dropdown works only when #profileBtn + #profileDropdown exists (safe)
+// 5) Keeps your v3.8.1 logic: Trip + Manual + Collection Activity Logs + Bin Empty on Collected
 //
-// ⚠️ Note:
-// - If your collection_records table does NOT have vehicle_id column, the collection log will show "UNKNOWN" vehicle.
-// - If you want vehicle_id saved in collection_records, add column: vehicle_id text (optional) and update collection.html insert.
-// - staff_tasks must allow inserts for task_type "COLLECTION" (RLS policy should allow).
+// ⚠️ DB NOTE (as you wrote)
+// collection_records: id, user_id, date, area, waste_type, quantity_kg, created_at, bin_id, task_id, staff_task_id, vehicle_id
 
 import { API_URL as RAW_API_URL } from "./config.js";
 import { supabase } from "./supabaseClient.js";
 
 /* =========================
-   CONFIG TOGGLES (EDIT IF NEEDED)
+   CONFIG TOGGLES
 ========================= */
 const HAS_COMPLAINT_CREATED_BY = true;
 const COLLECTION_HAS_TASK_AND_BIN = true;
@@ -31,18 +28,98 @@ const HIDE_EMPTY_BINS_ON_BINS_PAGE = true;
 window.supabase = supabase;
 
 /* =========================
+   ✅ GLOBAL APP EVENT BUS
+========================= */
+function ping(key) {
+  try { localStorage.setItem(key, String(Date.now())); } catch {}
+}
+function emit(name, detail = {}) {
+  try { window.dispatchEvent(new CustomEvent(name, { detail })); } catch {}
+}
+window.__appPing = ping;
+window.__appEmit = emit;
+
+/* =========================
+   ✅ COLLECTION RECORDS: SAME FOR ALL ROLES
+========================= */
+window.fetchCollectionRecordsAll = async function ({
+  limit = null,
+  orderBy = "created_at",
+  ascending = false
+} = {}) {
+  let q = supabase
+    .from("collection_records")
+    .select("*")
+    .order(orderBy, { ascending: !!ascending });
+
+  if (limit && Number(limit) > 0) q = q.limit(Number(limit));
+
+  const { data, error } = await q;
+  if (error) {
+    console.log("fetchCollectionRecordsAll ERROR:", error);
+    return { ok: false, data: null, error: error.message };
+  }
+  return { ok: true, data, error: null };
+};
+
+// Quick check: admin & worker should show same count after Option A RLS
+window.debugCollectionCount = async function () {
+  const r = await supabase.from("collection_records").select("id", { count: "exact" });
+  console.log("collection_records count:", r.count, "rows:", r.data?.length, "error:", r.error);
+  return r;
+};
+
+/* =========================
+   ✅ REALTIME HELPERS
+========================= */
+
+// Optional realtime helper for collection.html (all roles see inserts instantly)
+let __collectionSub = null;
+window.startCollectionRealtime = function (onChange) {
+  if (__collectionSub) return;
+  __collectionSub = supabase
+    .channel("collection_records_changes")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "collection_records" }, () => {
+      try { onChange?.(); } catch {}
+    })
+    .subscribe();
+};
+window.stopCollectionRealtime = function () {
+  if (__collectionSub) {
+    supabase.removeChannel(__collectionSub);
+    __collectionSub = null;
+  }
+};
+
+// ✅ Realtime for pickup_tasks (Recycling dropdown should update immediately)
+let __pickupSub = null;
+window.startPickupTasksRealtime = function (onChange) {
+  if (__pickupSub) return;
+  __pickupSub = supabase
+    .channel("pickup_tasks_changes")
+    .on("postgres_changes", { event: "*", schema: "public", table: "pickup_tasks" }, (payload) => {
+      try { onChange?.(payload); } catch {}
+      // Also broadcast a global signal
+      ping("refresh_recycling");
+      emit("app:pickup_tasks_changed", payload);
+    })
+    .subscribe();
+};
+window.stopPickupTasksRealtime = function () {
+  if (__pickupSub) {
+    supabase.removeChannel(__pickupSub);
+    __pickupSub = null;
+  }
+};
+
+/* =========================
    Small Helpers
 ========================= */
-function $(id) {
-  return document.getElementById(id);
-}
+function $(id) { return document.getElementById(id); }
 
 window.toast = function (msg) {
   const t = $("toast");
-  if (!t) {
-    alert(msg);
-    return;
-  }
+  if (!t) { alert(msg); return; }
   t.textContent = msg;
   t.style.display = "block";
   clearTimeout(window.__toastTimer);
@@ -74,11 +151,7 @@ async function apiFetch(path, options = {}) {
 
   const raw = await res.text();
   let data = null;
-  try {
-    data = raw ? JSON.parse(raw) : null;
-  } catch {
-    data = null;
-  }
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
 
   if (!res.ok) {
     const backendMsg = data?.error || data?.message || data?.supabase_error;
@@ -392,6 +465,7 @@ window.applyRoleMenu = applyRoleMenu;
 
 /* =========================
    PROFILE DROPDOWN
+   (only works on pages that have #profileBtn + #profileDropdown)
 ========================= */
 function initProfileMenu() {
   const btn = document.getElementById("profileBtn");
@@ -409,7 +483,7 @@ function initProfileMenu() {
 window.initProfileMenu = initProfileMenu;
 
 /* =========================
-   ✅ PROFILE SAFE GETTER (USED BY ADMIN MODULES)
+   ✅ PROFILE SAFE GETTER
 ========================= */
 async function getMyProfileSafe() {
   const { data: sess } = await supabase.auth.getSession();
@@ -459,8 +533,8 @@ async function loadProfile() {
     .eq("id", userId)
     .maybeSingle();
 
-  if (error) { toast("Profile load failed: " + error.message); return; }
-  if (!p) { toast("Profile row not found. Signup again."); return; }
+  if (error) { window.toast?.("Profile load failed: " + error.message); return; }
+  if (!p) { window.toast?.("Profile row not found. Signup again."); return; }
 
   if ($("profileRole")) $("profileRole").value = normalizeRole(p.role) || "-";
   if ($("profileArea")) $("profileArea").value = (p.area || "-");
@@ -478,7 +552,7 @@ async function changePassword() {
 
   if (np.length < 6) {
     if (msg) msg.textContent = "Password must be at least 6 characters";
-    toast("Password must be at least 6 characters");
+    window.toast?.("Password must be at least 6 characters");
     return;
   }
 
@@ -486,10 +560,10 @@ async function changePassword() {
 
   if (error) {
     if (msg) msg.textContent = error.message;
-    toast(error.message);
+    window.toast?.(error.message);
   } else {
     if (msg) msg.textContent = "";
-    toast("Password updated ✅");
+    window.toast?.("Password updated ✅");
     if ($("newPassword")) $("newPassword").value = "";
   }
 }
@@ -593,7 +667,7 @@ async function saveBin() {
     const area = ($("binarea")?.value || "").trim();
     const status = $("status")?.value;
 
-    if (!binId || !area) { toast("Enter Bin ID and Area"); return; }
+    if (!binId || !area) { window.toast?.("Enter Bin ID and Area"); return; }
 
     const me = await getMyProfileFromStorage();
 
@@ -618,14 +692,14 @@ async function saveBin() {
 
     if (status === "Full") {
       await createPickupTaskIfNeeded(binId, area);
-      toast("Bin FULL → Task created ✅");
+      window.toast?.("Bin FULL → Task created ✅");
     } else {
-      toast("Bin updated ✅");
+      window.toast?.("Bin updated ✅");
     }
 
     window.renderBins?.();
   } catch (e) {
-    toast("Error: " + e.message);
+    window.toast?.("Error: " + e.message);
   }
 }
 window.saveBin = saveBin;
@@ -636,10 +710,10 @@ window.saveBin = saveBin;
 window.openAssignBinModal = async function (binId) {
   try {
     const me = await getMyProfileSafe();
-    if (!me || me.role !== "admin") return toast("Only admin can assign.");
+    if (!me || me.role !== "admin") return window.toast?.("Only admin can assign.");
 
     const modal = $("assignBinModal");
-    if (!modal) return toast("Assign modal missing in bins.html");
+    if (!modal) return window.toast?.("Assign modal missing in bins.html");
 
     $("assignBinId").value = binId;
 
@@ -649,7 +723,7 @@ window.openAssignBinModal = async function (binId) {
       .in("role", ["worker", "driver"])
       .order("full_name", { ascending: true });
 
-    if (error) return toast("Load staff failed: " + error.message);
+    if (error) return window.toast?.("Load staff failed: " + error.message);
 
     const sel = $("assignBinTo");
     if (sel) {
@@ -667,7 +741,7 @@ window.openAssignBinModal = async function (binId) {
     document.body.classList.add("modal-open");
   } catch (e) {
     console.log(e);
-    toast("Open modal failed: " + (e?.message || e));
+    window.toast?.("Open modal failed: " + (e?.message || e));
   }
 };
 
@@ -680,15 +754,15 @@ window.closeAssignBinModal = function () {
 window.confirmAssignBin = async function () {
   try {
     const me = await getMyProfileSafe();
-    if (!me || me.role !== "admin") return toast("Only admin can assign.");
+    if (!me || me.role !== "admin") return window.toast?.("Only admin can assign.");
 
     const binId = ($("assignBinId")?.value || "").trim();
     const staffId = ($("assignBinTo")?.value || "").trim();
     const notes = ($("assignBinNotes")?.value || "").trim();
     const priority = ($("assignBinPriority")?.value || "normal").trim();
 
-    if (!binId) return toast("Bin ID missing.");
-    if (!staffId) return toast("Select staff.");
+    if (!binId) return window.toast?.("Bin ID missing.");
+    if (!staffId) return window.toast?.("Select staff.");
 
     const { data: binRow, error: bErr } = await supabase
       .from("bins")
@@ -696,7 +770,7 @@ window.confirmAssignBin = async function () {
       .eq("bin_id", binId)
       .maybeSingle();
 
-    if (bErr) return toast("Bin fetch failed: " + bErr.message);
+    if (bErr) return window.toast?.("Bin fetch failed: " + bErr.message);
 
     const staffRole = normalizeRole(
       $("assignBinTo")?.selectedOptions?.[0]?.getAttribute("data-role") || ""
@@ -722,176 +796,16 @@ window.confirmAssignBin = async function () {
     };
 
     const r = await safeInsertPickupTask(payload, fallback);
-    if (!r.ok) return toast("Assign failed: " + r.error);
+    if (!r.ok) return window.toast?.("Assign failed: " + r.error);
 
-    toast("Assigned ✅ Pickup task created");
+    window.toast?.("Assigned ✅ Pickup task created");
     window.closeAssignBinModal?.();
 
     try { window.renderBins?.(); } catch {}
     try { window.renderTasks?.(); } catch {}
   } catch (e) {
     console.log(e);
-    toast("Assign failed: " + (e?.message || e));
-  }
-};
-
-/* =========================
-   ✅ ADMIN: MANUAL TASK ASSIGN (staff_vehicle.html)
-========================= */
-window.initAdminManualTaskUI = async function () {
-  try {
-    const card = $("adminManualTaskCard");
-    if (!card) return;
-
-    const me = await getMyProfileSafe();
-    if (!me || me.role !== "admin") {
-      card.style.display = "none";
-      return;
-    }
-
-    card.style.display = "block";
-
-    const { data: staff, error } = await supabase
-      .from("profiles")
-      .select("id, full_name, email, role, area")
-      .in("role", ["worker", "driver"])
-      .order("full_name", { ascending: true });
-
-    if (error) return toast("Load staff failed: " + error.message);
-
-    const sel = $("manualAssignTo");
-    if (sel) {
-      sel.innerHTML = `<option value="">-- Select Staff --</option>`;
-      (staff || []).forEach(u => {
-        const label = `${u.full_name || u.email} (${normalizeRole(u.role)})`;
-        sel.innerHTML += `<option value="${u.id}" data-role="${normalizeRole(u.role)}" data-area="${u.area || ""}">${label}</option>`;
-      });
-    }
-
-    const due = $("manualDueDate");
-    if (due && !due.value) due.value = new Date().toISOString().slice(0, 10);
-  } catch (e) {
-    console.log(e);
-    toast("Init manual task failed: " + (e?.message || e));
-  }
-};
-
-/* ===============================
-   ✅ Helper: create an Activity Log row in staff_tasks (Manual Task)
-================================= */
-async function addActivityLogFromManualTask({
-  logDate,
-  vehicleId = "",
-  assignedTo = null,
-  staffName = "",
-  route = "",
-  shift = "Morning",
-  status = "Assigned",
-  taskId = null,
-}) {
-  const payload = {
-    task_type: "MANUAL",
-    date: logDate,
-    vehicle_id: vehicleId && vehicleId.trim() !== "" ? vehicleId : "MANUAL",
-    assigned_to: assignedTo,
-    staff_name: staffName && staffName.trim() !== "" ? staffName : "Unknown",
-    route: route || "Manual Assignment",
-    shift: shift || "Morning",
-    status: status || "Assigned",
-    task_id: taskId || null,
-    created_at: new Date().toISOString()
-  };
-
-  const { error } = await supabase.from("staff_tasks").insert([payload]);
-  if (error) throw error;
-}
-
-/* ===============================
-   ✅ Admin: Create & Assign Manual Task (pickup_tasks + staff_tasks log)
-================================= */
-window.createManualTask = async function () {
-  try {
-    const me = await getMyProfileSafe();
-    if (!me || me.role !== "admin") return toast("Only admin can create tasks.");
-
-    const assignTo = (document.getElementById("manualAssignTo")?.value || "").trim();
-    const taskType = (document.getElementById("manualTaskType")?.value || "pickup").trim();
-    const binId = (document.getElementById("manualBinId")?.value || "").trim() || null;
-    const route = (document.getElementById("manualRoute")?.value || "").trim();
-    const priority = (document.getElementById("manualPriority")?.value || "normal").trim();
-    const dueDate = (document.getElementById("manualDueDate")?.value || new Date().toISOString().slice(0, 10)).trim();
-    const notes = (document.getElementById("manualNotes")?.value || "").trim();
-
-    // ✅ Optional manual vehicle input (add this input in staff_vehicle.html if you want)
-    // <input id="manualVehicleId" placeholder="Eg: TN-37-WM-1023" />
-    const manualVehicleId = (document.getElementById("manualVehicleId")?.value || "").trim();
-
-    if (!assignTo) return toast("Select staff to assign");
-    if (!route) return toast("Enter Area / Route");
-
-    const role = document.getElementById("manualAssignTo")
-      ?.selectedOptions?.[0]?.getAttribute("data-role") || "worker";
-
-    // 1) Create pickup task
-    const { data: createdTask, error: taskErr } = await supabase
-      .from("pickup_tasks")
-      .insert([{
-        bin_id: binId,
-        area: route,
-        status: "OPEN",
-        assigned_worker_id: role === "worker" ? assignTo : null,
-        assigned_driver_id: role === "driver" ? assignTo : null,
-        priority,
-        due_date: dueDate,
-        notes: notes ? `[${taskType.toUpperCase()}] ${notes}` : `[${taskType.toUpperCase()}]`,
-        assigned_by: me.id
-      }])
-      .select("id")
-      .single();
-
-    if (taskErr) throw taskErr;
-
-    const newTaskId = createdTask?.id || null;
-
-    // 2) Staff name (label + profiles confirmation)
-    const staffLabel =
-      document.getElementById("manualAssignTo")?.selectedOptions?.[0]?.textContent?.trim() || "";
-
-    let staffName = staffLabel.split(" (")[0].trim();
-    if (!staffName) staffName = assignTo;
-
-    const { data: prof, error: pErr } = await supabase
-      .from("profiles")
-      .select("full_name,email")
-      .eq("id", assignTo)
-      .maybeSingle();
-
-    if (!pErr && prof) staffName = prof.full_name || prof.email || staffName;
-
-    // 3) Insert Activity Log row (staff_tasks)
-    await addActivityLogFromManualTask({
-      logDate: dueDate,
-      vehicleId: manualVehicleId,   // blank -> becomes "MANUAL"
-      assignedTo: assignTo,
-      staffName,
-      route,
-      shift: "Morning",
-      status: "Assigned",
-      taskId: newTaskId,
-    });
-
-    toast("Manual task created + added to Activity Logs ✅");
-
-    if (document.getElementById("manualBinId")) document.getElementById("manualBinId").value = "";
-    if (document.getElementById("manualRoute")) document.getElementById("manualRoute").value = "";
-    if (document.getElementById("manualNotes")) document.getElementById("manualNotes").value = "";
-    if (document.getElementById("manualVehicleId")) document.getElementById("manualVehicleId").value = "";
-
-    try { window.renderTrips?.(); } catch {}
-    try { window.renderTasks?.(); } catch {}
-  } catch (e) {
-    console.log(e);
-    toast("Create task failed: " + (e?.message || e));
+    window.toast?.("Assign failed: " + (e?.message || e));
   }
 };
 
@@ -910,7 +824,7 @@ async function renderBins() {
     .select("bin_id, area, status, updated_at")
     .order("updated_at", { ascending: false });
 
-  if (error) { tbody.innerHTML = ""; toast(error.message); return; }
+  if (error) { tbody.innerHTML = ""; window.toast?.(error.message); return; }
 
   const pill = (s) => s === "Full" ? "bad" : (s === "Half" ? "warn" : "good");
 
@@ -927,8 +841,9 @@ async function renderBins() {
   const isAdmin = role === "admin";
 
   tbody.innerHTML = list.map(x => {
+    const safeBin = String(x.bin_id).replace(/'/g, "\\'");
     const assignBtn = isAdmin
-      ? `<td><button class="btn" onclick="openAssignBinModal('${String(x.bin_id).replace(/'/g, "\\'")}')">Assign</button></td>`
+      ? `<td><button class="btn" onclick="openAssignBinModal('${safeBin}')">Assign</button></td>`
       : "";
 
     return `
@@ -945,8 +860,17 @@ async function renderBins() {
 window.renderBins = renderBins;
 
 /* =========================
-   STAFF TASKS (TRIP)
+   STAFF TASKS (TRIP + MANUAL + COLLECTION logs)
 ========================= */
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 async function findUserIdByNameOrEmail(text) {
   const key = (text || "").trim();
   if (!key) return null;
@@ -974,7 +898,7 @@ async function saveTrip() {
   try {
     const { data: sessData } = await supabase.auth.getSession();
     const session = sessData?.session;
-    if (!session) { toast("Login required"); window.location = "index.html"; return; }
+    if (!session) { window.toast?.("Login required"); window.location = "index.html"; return; }
 
     const date = document.getElementById("vdate")?.value;
     const vehicle_id = (document.getElementById("vehicleId")?.value || "").trim();
@@ -984,13 +908,13 @@ async function saveTrip() {
     const status = document.getElementById("tripStatus")?.value || "Assigned";
 
     if (!date || !vehicle_id || !staff_name || !route || !shift) {
-      toast("Fill all fields");
+      window.toast?.("Fill all fields");
       return;
     }
 
     const assigned_to = await findUserIdByNameOrEmail(staff_name);
     if (!assigned_to) {
-      toast("Staff not found. Enter exact Full Name (must exist in Users).");
+      window.toast?.("Staff not found. Enter exact Full Name (must exist in Users).");
       return;
     }
 
@@ -1015,15 +939,15 @@ async function saveTrip() {
 
     if (error) {
       console.log("staff_tasks insert error:", error);
-      toast("Save failed: " + error.message);
+      window.toast?.("Save failed: " + error.message);
       return;
     }
 
-    toast("Trip Assigned ✅");
+    window.toast?.("Trip Assigned ✅");
     await window.renderTrips?.();
   } catch (e) {
     console.log(e);
-    toast("Save error: " + (e?.message || e));
+    window.toast?.("Save error: " + (e?.message || e));
   }
 }
 window.saveTrip = saveTrip;
@@ -1054,7 +978,7 @@ async function renderTrips() {
     .in("task_type", ["TRIP", "MANUAL", "COLLECTION"])
     .order("created_at", { ascending: false });
 
-  if (error) { console.log(error); toast("Fetch failed: " + error.message); return; }
+  if (error) { console.log(error); window.toast?.("Fetch failed: " + error.message); return; }
 
   const rows = (data || []);
   const ids = [...new Set(rows.map(r => r.assigned_to).filter(Boolean))];
@@ -1067,9 +991,7 @@ async function renderTrips() {
       .in("id", ids);
 
     if (!pErr && profs) {
-      profs.forEach(p => {
-        nameMap[p.id] = p.full_name || p.email || p.id;
-      });
+      profs.forEach(p => { nameMap[p.id] = p.full_name || p.email || p.id; });
     }
   }
 
@@ -1112,23 +1034,13 @@ window.renderTrips = renderTrips;
 
 async function deleteTripLog(id) {
   const role = getStoredRole();
-  if (role !== "admin") {
-    toast("Only admin can delete logs");
-    return;
-  }
+  if (role !== "admin") { window.toast?.("Only admin can delete logs"); return; }
 
-  const { error } = await supabase
-    .from("staff_tasks")
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("staff_tasks").delete().eq("id", id);
 
-  if (error) {
-    console.log(error);
-    toast("Delete failed: " + error.message);
-    return;
-  }
+  if (error) { console.log(error); window.toast?.("Delete failed: " + error.message); return; }
 
-  toast("Deleted ✅");
+  window.toast?.("Deleted ✅");
   await window.renderTrips?.();
 }
 window.deleteTripLog = deleteTripLog;
@@ -1210,8 +1122,28 @@ async function hasCollectionForTask(taskId) {
 }
 window.hasCollectionForTask = hasCollectionForTask;
 
+// ✅ When collection is done, make the bin disappear from Bin Status by setting it Empty
+window.setBinEmptyAndHide = async function (binId) {
+  try {
+    if (!binId) return { ok: true };
+
+    const { error } = await supabase
+      .from("bins")
+      .update({
+        status: "Empty",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("bin_id", binId);
+
+    if (error) return { ok: false, error };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e };
+  }
+};
+
 /* =========================
-   TASKS BUTTONS ✅ (EXPOSED)
+   TASKS (pickup_tasks)
 ========================= */
 function tripActionButton(t, role) {
   if (role !== "admin") {
@@ -1227,7 +1159,6 @@ function tripActionButton(t, role) {
 }
 window.tripActionButton = tripActionButton;
 
-// ✅ Collection shortcut button
 function goToCollectionForPickup(taskId, binId, area = "") {
   const q = new URLSearchParams();
   if (taskId) q.set("task_id", taskId);
@@ -1241,7 +1172,7 @@ window.goToCollectionForPickup = goToCollectionForPickup;
 
 function pickupActionButton(t, role) {
   if ((role === "worker" || role === "driver") && t.status === "OPEN") {
-    const btn1 = `<button class="btn" onclick="goToCollectionForPickup('${t.id}','${t.bin_id || ""}','${(t.area || "").replaceAll("'", "\\'")}')">Collection</button>`;
+    const btn1 = `<button class="btn" onclick="goToCollectionForPickup('${t.id}','${t.bin_id || ""}','${escapeHtml(t.area || "")}')">Collection</button>`;
     const btn2 = `<button class="btn" style="margin-left:8px;" onclick="markCollected('${t.id}')">Mark Collected</button>`;
     return `${btn1}${btn2}`;
   }
@@ -1259,8 +1190,59 @@ function pickupActionButton(t, role) {
 }
 window.pickupActionButton = pickupActionButton;
 
+window.renderTasks = async function () {
+  const tbody = document.getElementById("tasksBody") || document.getElementById("myTasksBody");
+  if (!tbody) return;
+
+  const role = getStoredRole();
+  const myId = localStorage.getItem("user_id");
+  const qText = (document.getElementById("searchTasks")?.value || "").toLowerCase().trim();
+  const statusFilter = (document.getElementById("filterStatus")?.value || "").trim();
+  const priorityFilter = (document.getElementById("filterPriority")?.value || "").trim();
+
+  let q = supabase
+    .from("pickup_tasks")
+    .select("id,bin_id,area,status,priority,notes,due_date,assigned_worker_id,assigned_driver_id,created_at,collected_kg,recycled_kg,recycle_percent")
+    .order("created_at", { ascending: false });
+
+  if (role === "worker") q = q.eq("assigned_worker_id", myId);
+  if (role === "driver") q = q.eq("assigned_driver_id", myId);
+
+  const { data, error } = await q;
+  if (error) { window.toast?.("Tasks load failed: " + error.message); tbody.innerHTML = ""; return; }
+
+  let rows = data || [];
+
+  if (statusFilter) rows = rows.filter(r => (r.status || "") === statusFilter);
+  if (priorityFilter) rows = rows.filter(r => (r.priority || "") === priorityFilter);
+  if (qText) {
+    rows = rows.filter(r => {
+      const s = `${r.id} ${r.bin_id} ${r.area} ${r.status} ${r.priority} ${r.notes}`.toLowerCase();
+      return s.includes(qText);
+    });
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8">No tasks found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(t => `
+    <tr>
+      <td class="task-id"><div class="id-wrap"><span class="id-text">${escapeHtml(t.id)}</span></div></td>
+      <td>${escapeHtml(t.bin_id || "-")}</td>
+      <td>${escapeHtml(t.area || "")}</td>
+      <td>${escapeHtml(t.priority || "-")}</td>
+      <td>${escapeHtml(t.status || "")}</td>
+      <td>${escapeHtml(t.due_date || "")}</td>
+      <td>${escapeHtml(t.notes || "")}</td>
+      <td class="task-actions">${pickupActionButton(t, role)}</td>
+    </tr>
+  `).join("");
+};
+
 /* =========================
-   ✅ COLLECTION LOG HELPERS (NEW)
+   ✅ COLLECTION LOG HELPERS
 ========================= */
 async function addCollectionActivityLog({ date, vehicle_id, staff_id, staff_name, route, task_id }) {
   const payload = {
@@ -1281,10 +1263,8 @@ async function addCollectionActivityLog({ date, vehicle_id, staff_id, staff_name
 }
 window.addCollectionActivityLog = addCollectionActivityLog;
 
-// Try to read vehicle_id from latest collection_records (if the column exists).
 async function getLatestCollectionVehicleForPickupTask(taskId) {
   try {
-    // Try with vehicle_id column
     const r1 = await supabase
       .from("collection_records")
       .select("vehicle_id,created_at")
@@ -1297,7 +1277,6 @@ async function getLatestCollectionVehicleForPickupTask(taskId) {
       return (v && String(v).trim()) ? String(v).trim() : null;
     }
 
-    // If column doesn't exist, ignore
     const msg = (r1.error?.message || "").toLowerCase();
     if (msg.includes("column") && msg.includes("does not exist")) return null;
 
@@ -1311,7 +1290,6 @@ async function createCollectionLogForPickupTask(taskId) {
   try {
     if (!taskId) return;
 
-    // pickup_tasks gives area + assigned staff
     const { data: task, error: tErr } = await supabase
       .from("pickup_tasks")
       .select("id,area,assigned_worker_id,assigned_driver_id")
@@ -1344,7 +1322,6 @@ async function createCollectionLogForPickupTask(taskId) {
       task_id: taskId
     });
 
-    // refresh logs if on staff_vehicle.html
     try { await window.renderTrips?.(); } catch {}
   } catch (e) {
     console.log("createCollectionLogForPickupTask error:", e);
@@ -1364,12 +1341,12 @@ async function markCollected(taskId) {
       .maybeSingle();
 
     if (tErr) {
-      toast("❌ Collection entry required. (Task fetch failed: " + tErr.message + ")");
+      window.toast?.("❌ Collection entry required. (Task fetch failed: " + tErr.message + ")");
       setTimeout(() => { window.location = "collection.html"; }, 700);
       return;
     }
 
-    toast("❌ Save Collection entry first. Opening Collection page...");
+    window.toast?.("❌ Save Collection entry first. Opening Collection page...");
     setTimeout(() => {
       goToCollectionForPickup(taskId, taskRow?.bin_id || "", taskRow?.area || "");
     }, 700);
@@ -1381,7 +1358,7 @@ async function markCollected(taskId) {
     const kgRaw = prompt("Collected kg? (Enter same kg as collection entry)");
     if (kgRaw === null) return;
     kg = Number(kgRaw);
-    if (Number.isNaN(kg) || kg <= 0) { toast("Enter valid collected kg"); return; }
+    if (Number.isNaN(kg) || kg <= 0) { window.toast?.("Enter valid collected kg"); return; }
   }
 
   const { data: taskRow, error: tErr } = await supabase
@@ -1390,15 +1367,9 @@ async function markCollected(taskId) {
     .eq("id", taskId)
     .maybeSingle();
 
-  if (tErr) {
-    toast("Fetch failed: " + tErr.message);
-    return;
-  }
+  if (tErr) { window.toast?.("Fetch failed: " + tErr.message); return; }
 
-  const payload = {
-    status: "COLLECTED",
-    collected_at: new Date().toISOString()
-  };
+  const payload = { status: "COLLECTED" };
   if (kg !== null) payload.collected_kg = kg;
 
   const { error } = await supabase
@@ -1406,10 +1377,7 @@ async function markCollected(taskId) {
     .update(payload)
     .eq("id", taskId);
 
-  if (error) {
-    toast(error.message);
-    return;
-  }
+  if (error) { window.toast?.(error.message); return; }
 
   // ✅ Once collected -> bin becomes Empty
   if (taskRow?.bin_id) {
@@ -1417,10 +1385,14 @@ async function markCollected(taskId) {
     if (!r.ok) console.log("Bin status update failed:", r.error);
   }
 
-  // ✅ NEW: Add COLLECTION log into staff_tasks (with vehicle if available)
+  // ✅ Add COLLECTION log into staff_tasks
   await createCollectionLogForPickupTask(taskId);
 
-  toast("Collected ✅ Bin marked Empty ✅ (Activity Log updated)");
+  // ✅ IMPORTANT: notify Recycling dropdown immediately
+  ping("refresh_recycling");
+  emit("app:pickup_tasks_changed", { id: taskId, status: "COLLECTED" });
+
+  window.toast?.("Collected ✅ Bin marked Empty ✅ (Activity Log updated)");
 
   try { window.renderBins?.(); } catch {}
   try { window.renderTasks?.(); } catch {}
@@ -1430,11 +1402,14 @@ window.markCollected = markCollected;
 async function markDelivered(taskId) {
   const { error } = await supabase
     .from("pickup_tasks")
-    .update({ status: "DELIVERED", delivered_at: new Date().toISOString() })
+    .update({ status: "DELIVERED" })
     .eq("id", taskId);
 
-  if (error) toast(error.message);
-  else toast("Delivered ✅");
+  if (error) window.toast?.(error.message);
+  else window.toast?.("Delivered ✅");
+
+  ping("refresh_recycling");
+  emit("app:pickup_tasks_changed", { id: taskId, status: "DELIVERED" });
 
   window.renderTasks?.();
 }
@@ -1444,19 +1419,21 @@ async function markReceived(taskId) {
   const receivedRaw = prompt("Received kg?");
   if (receivedRaw === null) return;
   const received = Number(receivedRaw);
-  if (Number.isNaN(received) || received <= 0) { toast("Enter valid received kg"); return; }
+  if (Number.isNaN(received) || received <= 0) { window.toast?.("Enter valid received kg"); return; }
 
   const { error } = await supabase
     .from("pickup_tasks")
     .update({
       status: "RECEIVED",
-      received_kg: received,
-      received_at: new Date().toISOString()
+      received_kg: received
     })
     .eq("id", taskId);
 
-  if (error) toast(error.message);
-  else toast("Received ✅");
+  if (error) window.toast?.(error.message);
+  else window.toast?.("Received ✅");
+
+  ping("refresh_recycling");
+  emit("app:pickup_tasks_changed", { id: taskId, status: "RECEIVED" });
 
   window.renderTasks?.();
 }
@@ -1466,25 +1443,28 @@ async function markRecycled(taskId) {
   const recycledRaw = prompt("Recycled kg?");
   if (recycledRaw === null) return;
   const recycled = Number(recycledRaw);
-  if (Number.isNaN(recycled) || recycled < 0) { toast("Enter valid recycled kg"); return; }
+  if (Number.isNaN(recycled) || recycled < 0) { window.toast?.("Enter valid recycled kg"); return; }
 
   const percentRaw = prompt("Recycle %?");
   if (percentRaw === null) return;
   const percent = Number(percentRaw);
-  if (Number.isNaN(percent) || percent < 0 || percent > 100) { toast("Enter valid % (0-100)"); return; }
+  if (Number.isNaN(percent) || percent < 0 || percent > 100) { window.toast?.("Enter valid % (0-100)"); return; }
 
   const { error } = await supabase
     .from("pickup_tasks")
     .update({
       status: "RECYCLED",
       recycled_kg: recycled,
-      recycle_percent: percent,
-      recycled_at: new Date().toISOString()
+      recycle_percent: percent
     })
     .eq("id", taskId);
 
-  if (error) toast(error.message);
-  else toast("Recycled ✅");
+  if (error) window.toast?.(error.message);
+  else window.toast?.("Recycled ✅");
+
+  // ✅ IMPORTANT: notify Collection list + Recycling dropdown
+  ping("refresh_recycling");
+  emit("app:pickup_tasks_changed", { id: taskId, status: "RECYCLED" });
 
   window.renderTasks?.();
 }
@@ -1501,7 +1481,7 @@ async function loadUsers() {
     .select("id, email, role, area, full_name, created_at")
     .order("created_at", { ascending: false });
 
-  if (error) { toast("Load users failed: " + error.message); return; }
+  if (error) { window.toast?.("Load users failed: " + error.message); return; }
 
   _usersCache = data || [];
   window.renderUsers?.();
@@ -1525,7 +1505,7 @@ function renderUsers() {
     const role = normalizeRole(u.role);
     return `
       <tr>
-        <td>${u.email || ""}</td>
+        <td>${escapeHtml(u.email || "")}</td>
         <td>
           <select id="role_${u.id}">
             ${["admin", "worker", "driver", "recycling_manager"].map(r =>
@@ -1533,7 +1513,7 @@ function renderUsers() {
             ).join("")}
           </select>
         </td>
-        <td><input id="area_${u.id}" value="${u.area || ""}" /></td>
+        <td><input id="area_${u.id}" value="${escapeHtml(u.area || "")}" /></td>
         <td><button type="button" class="btn" onclick="updateUser('${u.id}')">Save</button></td>
       </tr>
     `;
@@ -1545,16 +1525,16 @@ async function updateUser(userId) {
   const role = normalizeRole($("role_" + userId)?.value);
   const area = ($("area_" + userId)?.value || "").trim();
 
-  if (!area) { toast("Area required"); return; }
+  if (!area) { window.toast?.("Area required"); return; }
 
   const { error } = await supabase
     .from("profiles")
     .update({ role, area })
     .eq("id", userId);
 
-  if (error) { toast("Update failed: " + error.message); return; }
+  if (error) { window.toast?.("Update failed: " + error.message); return; }
 
-  toast("User updated ✅");
+  window.toast?.("User updated ✅");
   window.loadUsers?.();
 }
 window.updateUser = updateUser;
@@ -1566,44 +1546,28 @@ async function saveComplaint() {
   try {
     const { data: sessData } = await supabase.auth.getSession();
     const session = sessData?.session;
-    if (!session) { toast("Login required"); window.location = "index.html"; return; }
+    if (!session) { window.toast?.("Login required"); window.location = "index.html"; return; }
 
     const citizen_name = ($("cname")?.value || "").trim();
     const area = ($("carea")?.value || "").trim();
     const issue = ($("cissue")?.value || "").trim();
     const priority = $("cpriority")?.value || "Low";
 
-    if (!citizen_name || !area || !issue) {
-      toast("Fill all fields");
-      return;
-    }
+    if (!citizen_name || !area || !issue) { window.toast?.("Fill all fields"); return; }
 
-    const payload = {
-      citizen_name,
-      area,
-      issue,
-      priority,
-      status: "Open"
-    };
-
+    const payload = { citizen_name, area, issue, priority, status: "Open" };
     if (HAS_COMPLAINT_CREATED_BY) payload.created_by = session.user.id;
 
     const { error } = await supabase.from("complaints").insert([payload]);
+    if (error) { console.log("complaints insert error:", error); window.toast?.("Save failed: " + error.message); return; }
 
-    if (error) {
-      console.log("complaints insert error:", error);
-      toast("Save failed: " + error.message);
-      return;
-    }
-
-    toast("Complaint Submitted ✅");
-
+    window.toast?.("Complaint Submitted ✅");
     if ($("cname")) $("cname").value = "";
     if ($("carea")) $("carea").value = "";
     if ($("cissue")) $("cissue").value = "";
   } catch (e) {
     console.log(e);
-    toast("Save error: " + (e?.message || e));
+    window.toast?.("Save error: " + (e?.message || e));
   }
 }
 window.saveComplaint = saveComplaint;
@@ -1619,12 +1583,7 @@ async function renderComplaints() {
     .select("id,citizen_name,area,issue,priority,status,created_at")
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.log("complaints select error:", error);
-    toast("Fetch failed: " + error.message);
-    tbody.innerHTML = "";
-    return;
-  }
+  if (error) { console.log("complaints select error:", error); window.toast?.("Fetch failed: " + error.message); tbody.innerHTML = ""; return; }
 
   const role = getStoredRole();
 
@@ -1636,11 +1595,11 @@ async function renderComplaints() {
   tbody.innerHTML = filtered.map(r => `
     <tr>
       <td>${r.created_at ? new Date(r.created_at).toLocaleString() : ""}</td>
-      <td>${r.citizen_name || ""}</td>
-      <td>${r.area || ""}</td>
-      <td>${r.issue || ""}</td>
-      <td>${r.priority || ""}</td>
-      <td>${r.status || ""}</td>
+      <td>${escapeHtml(r.citizen_name || "")}</td>
+      <td>${escapeHtml(r.area || "")}</td>
+      <td>${escapeHtml(r.issue || "")}</td>
+      <td>${escapeHtml(r.priority || "")}</td>
+      <td>${escapeHtml(r.status || "")}</td>
       <td>${role === "admin" ? complaintActions(r) : "-"}</td>
     </tr>
   `).join("");
@@ -1658,19 +1617,45 @@ function complaintActions(r) {
 }
 
 async function updateComplaintStatus(id, status) {
-  const { error } = await supabase
-    .from("complaints")
-    .update({ status })
-    .eq("id", id);
-
-  if (error) { toast("Update failed: " + error.message); return; }
-  toast("Updated ✅");
+  const { error } = await supabase.from("complaints").update({ status }).eq("id", id);
+  if (error) { window.toast?.("Update failed: " + error.message); return; }
+  window.toast?.("Updated ✅");
   await window.renderComplaints?.();
 }
 window.updateComplaintStatus = updateComplaintStatus;
 
 /* =========================
-   DASHBOARD KPIs
+   REPORT PAGE (uses ALL collection_records for every role)
+========================= */
+window.generateReport = async function () {
+  const tbody = document.getElementById("reportBody") || document.getElementById("reportsBody");
+  if (!tbody) return;
+
+  const r = await window.fetchCollectionRecordsAll({ orderBy: "created_at", ascending: false });
+  if (!r.ok) { window.toast?.("Report load failed: " + r.error); tbody.innerHTML = ""; return; }
+
+  const rows = r.data || [];
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8">No collection records.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(x => `
+    <tr>
+      <td>${escapeHtml(x.date || "")}</td>
+      <td>${escapeHtml(x.area || "")}</td>
+      <td>${escapeHtml(x.waste_type || "")}</td>
+      <td>${escapeHtml(x.quantity_kg ?? "")}</td>
+      <td>${escapeHtml(x.bin_id || "-")}</td>
+      <td>${escapeHtml(x.task_id || "-")}</td>
+      <td>${x.user_id ? escapeHtml(x.user_id.slice(0, 6) + "…") : "-"}</td>
+      <td>${x.created_at ? new Date(x.created_at).toLocaleString() : ""}</td>
+    </tr>
+  `).join("");
+};
+
+/* =========================
+   DASHBOARD KPIs (no filter: same for all roles)
 ========================= */
 async function renderDashboard() {
   if (!window.location.pathname.includes("dashboard.html")) return;
@@ -1715,7 +1700,6 @@ window.renderDashboard = renderDashboard;
 ========================= */
 document.addEventListener("DOMContentLoaded", async () => {
   const page = getCurrentPageName();
-
   if (page === "index.html" || page === "register.html" || page === "") return;
 
   try { window.applyRoleMenu?.(); } catch {}
@@ -1723,15 +1707,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   try { window.initProfileMenu?.(); } catch {}
   try { window.setActiveNav?.(); } catch {}
 
+  // ✅ Always wire logout buttons if present (top + sidebar)
+  try {
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
+  } catch {}
+
   const path = window.location.pathname;
 
-  if (path.includes("staff_vehicle.html")) {
-    try { await window.initAdminManualTaskUI?.(); } catch {}
+  if (path.includes("tasks.html")) {
+    window.renderTasks?.();
+    document.getElementById("searchTasks")?.addEventListener("input", () => window.renderTasks?.());
+    document.getElementById("filterStatus")?.addEventListener("change", () => window.renderTasks?.());
+    document.getElementById("filterPriority")?.addEventListener("change", () => window.renderTasks?.());
+  }
 
+  if (path.includes("staff_vehicle.html")) {
     window.renderTrips?.();
-    $("saveTripBtn")?.addEventListener("click", async () => {
-      await window.saveTrip?.();
-    });
+    $("saveTripBtn")?.addEventListener("click", async () => { await window.saveTrip?.(); });
     $("searchTrips")?.addEventListener("input", () => window.renderTrips?.());
   }
 
@@ -1746,11 +1739,30 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (path.includes("dashboard.html")) window.renderDashboard?.();
   if (path.includes("bins.html")) window.renderBins?.();
-
   if (path.includes("users.html")) window.loadUsers?.();
   if (path.includes("profile.html")) window.loadProfile?.();
-
   if (path.includes("report.html")) window.generateReport?.();
+
+  // ✅ Recycling page: auto-refresh dropdown when pickup_tasks changes (COLLECTED/RECYCLED)
+  if (path.includes("recycling.html")) {
+    // If recycling.html defines loadCollectedTasksForRecycling(), call it on changes
+    window.startPickupTasksRealtime?.(() => {
+      try { window.loadCollectedTasksForRecycling?.(); } catch {}
+    });
+
+    // Also listen to localStorage ping (if another tab updates)
+    window.addEventListener("storage", (e) => {
+      if (e.key === "refresh_recycling") {
+        try { window.loadCollectedTasksForRecycling?.(); } catch {}
+      }
+    });
+  }
+
+  // cleanup realtime
+  window.addEventListener("beforeunload", () => {
+    try { window.stopCollectionRealtime?.(); } catch {}
+    try { window.stopPickupTasksRealtime?.(); } catch {}
+  });
 });
 
 /* =========================

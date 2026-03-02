@@ -15,30 +15,24 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin active" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
-    <button type="button" class="btn red" onclick="logout()">Logout</button>
+    <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
   <!-- MAIN -->
@@ -48,28 +42,20 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1>Bin Status</h1>
-        <p class="sub">Update bin fill level and monitor areas in real-time.</p>
+        <p class="sub">Update bin status and monitor areas in real-time.</p>
       </div>
 
-      <!-- PROFILE -->
-      <div class="topbar-right">
-        <div class="profile-menu">
-
-          <!-- CLICKABLE PROFILE ICON -->
+      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+        <a href="profile.html" title="My Profile">
           <img
             src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            id="profileBtn"
             class="profile-icon"
             alt="Profile"
+            style="cursor:pointer;"
           />
+        </a>
 
-          <!-- DROPDOWN -->
-          <div id="profileDropdown" class="profile-dropdown">
-            <a href="profile.html">👤 My Profile</a>
-            <a href="#" onclick="logout()">🚪 Logout</a>
-          </div>
-
-        </div>
+        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
@@ -98,12 +84,12 @@
         </div>
 
         <div class="full">
-          <button type="button" class="btn" onclick="saveBin()">Update Status</button>
+          <button type="button" class="btn" id="btnUpdateBin">Update Status</button>
         </div>
       </div>
     </div>
 
-    <!-- ✅ ADMIN: ASSIGN BIN TASK (modal trigger info) -->
+    <!-- ADMIN: ASSIGN BIN TASK -->
     <div class="card" id="adminAssignHint" style="display:none; margin-top:14px;">
       <h2 style="margin-top:0;">Admin: Allocate Work</h2>
       <p class="sub" style="margin:0; opacity:.85;">
@@ -115,7 +101,7 @@
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; justify-content:space-between; margin-bottom:10px; gap:12px; align-items:center;">
         <h2 style="margin:0;">Bin Updates</h2>
-        <input id="searchBins" placeholder="Search bin/area/status..." oninput="renderBins()" />
+        <input id="searchBins" placeholder="Search bin/area/status..." />
       </div>
 
       <table class="table">
@@ -125,7 +111,7 @@
             <th>Area</th>
             <th>Status</th>
             <th>Last Updated</th>
-            <th class="nav-admin" style="width:140px;">Actions</th>
+            <th class="nav-admin" style="width:190px;">Actions</th>
           </tr>
         </thead>
         <tbody id="binsBody"></tbody>
@@ -141,7 +127,7 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ✅ ASSIGN MODAL (Admin only) -->
+<!-- ASSIGN MODAL (Admin only) -->
 <div id="assignBinModal" class="modal" style="display:none;">
   <div class="modal-card">
     <h3 style="margin-top:0;">Assign Bin Pickup Task</h3>
@@ -169,46 +155,503 @@
     </div>
 
     <p class="sub" style="margin-top:10px; opacity:.8;">
-      This will create a new row in <b>pickup_tasks</b> with status <b>ASSIGNED</b>.
+      This will create a new row in <b>pickup_tasks</b>.
     </p>
   </div>
 </div>
 
-<!-- IMPORTANT: app.js MUST LOAD FIRST -->
 <script type="module" src="app.js"></script>
 
-<!-- PAGE INIT -->
 <script type="module">
+  /* =========================
+     CONFIG
+  ========================= */
+  const DEBUG = false;
+
+  const BINS_TABLE = "bins";
+  const PICKUP_TASKS_TABLE = "pickup_tasks";
+
+  // ✅ Remove bin row ONLY when work completed
+  const REMOVE_IF_TASK_STATUS_IN = new Set(["COLLECTED", "RECYCLED"]);
+
+  // Optional: hide Empty bins only when NO active task
+  const HIDE_EMPTY_BINS = true;
+
+  // pin newly updated bin row
+  let PINNED_BIN_ID = null;
+
+  // local override (fast UI update after clicking Assign)
+  const OV_KEY = "bin_task_status_override_v3";
+
+  function $(id) { return document.getElementById(id); }
+  function norm(v) { return String(v || "").trim().toUpperCase(); }
+  function log(...a){ if (DEBUG) console.log("[bins]", ...a); }
+
+  function loadOverrides() {
+    try { return JSON.parse(localStorage.getItem(OV_KEY) || "{}"); }
+    catch { return {}; }
+  }
+  function saveOverrides(obj) {
+    localStorage.setItem(OV_KEY, JSON.stringify(obj || {}));
+  }
+  function setOverride(binCode, status) {
+    const o = loadOverrides();
+    o[norm(binCode)] = norm(status);
+    saveOverrides(o);
+  }
+  function clearOverride(binCode) {
+    const o = loadOverrides();
+    delete o[norm(binCode)];
+    saveOverrides(o);
+  }
+  function getOverride(binCode) {
+    const o = loadOverrides();
+    return norm(o[norm(binCode)] || "");
+  }
+
+  const getSupabase = async () => {
+    if (window.supabase) return window.supabase;
+    for (let i = 0; i < 50; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      if (window.supabase) return window.supabase;
+    }
+    throw new Error("Supabase client not found. Ensure app.js sets window.supabase");
+  };
+
+  function showToast(msg) {
+    if (window.toast) return window.toast(msg);
+    const t = $("toast");
+    if (!t) return alert(msg);
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2500);
+  }
+
+  function toMs(dtLike) {
+    const d = dtLike ? new Date(dtLike) : null;
+    const ms = d && !isNaN(d) ? d.getTime() : 0;
+    return ms || 0;
+  }
+
+  // ✅ DB-safe: do NOT read fill_level (your DB doesn't have it)
+  function normalizeBinRow(row) {
+    const binCode = row.bin_id ?? row.binId ?? row.binID ?? row.binid ?? row.code ?? row.bin_code ?? "";
+    const area  = row.area ?? row.bin_area ?? row.location ?? row.zone ?? "";
+    const statusRaw = row.status ?? row.bin_status ?? row.level ?? "";
+    const status = String(statusRaw || "").trim();
+    const lastUpdated = row.last_updated ?? row.updated_at ?? row.created_at ?? null;
+    return { raw: row, binCode: String(binCode), area: String(area), status, lastUpdated };
+  }
+
+  async function fetchBinsAll() {
+    const sb = await getSupabase();
+    const { data, error } = await sb
+      .from(BINS_TABLE)
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(500);
+
+    if (error) {
+      console.error("fetchBinsAll:", error);
+      showToast(error.message || "Failed to load bins");
+      return [];
+    }
+    return Array.isArray(data) ? data : [];
+  }
+
+  /* =========================
+     ✅ KEY FIX: Remove using collection_records ONLY
+     If collection_records has bin_id (B001), this works always.
+  ========================= */
+  async function fetchCollectedBinCodesFromCollectionRecords() {
+    const sb = await getSupabase();
+
+    // IMPORTANT: uses bin_id directly, no pickup_tasks needed
+    const { data, error } = await sb
+      .from("collection_records")
+      .select("bin_id,created_at")
+      .not("bin_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(3000);
+
+    if (error) {
+      console.warn("collection_records read failed:", error.message);
+      return new Set();
+    }
+
+    const s = new Set();
+    for (const r of (data || [])) {
+      const code = String(r?.bin_id || "").trim();
+      if (code) s.add(norm(code));
+    }
+
+    return s;
+  }
+
+  /* =========================
+     Task status (for showing ASSIGNED/STARTED buttons)
+     (This is OK to keep — only for UI label, not for removal)
+  ========================= */
+  async function fetchTaskStatusJoinUUID() {
+    const sb = await getSupabase();
+
+    const { data, error } = await sb
+      .from(PICKUP_TASKS_TABLE)
+      .select("status,created_at,updated_at,bin_id,bins:bin_id(id,bin_id)")
+      .order("created_at", { ascending: false })
+      .limit(3000);
+
+    if (error) {
+      log("joinUUID failed:", error.message);
+      return { ok: false, map: new Map() };
+    }
+
+    const map = new Map();
+    for (const r of (data || [])) {
+      const code = r?.bins?.bin_id ? norm(r.bins.bin_id) : "";
+      if (!code) continue;
+      if (!map.has(code)) {
+        const ts = toMs(r.updated_at || r.created_at);
+        map.set(code, { status: norm(r.status), ts });
+      }
+    }
+    return { ok: true, map };
+  }
+
+  async function fetchTaskStatusTextBinId() {
+    const sb = await getSupabase();
+
+    const { data, error } = await sb
+      .from(PICKUP_TASKS_TABLE)
+      .select("bin_id,status,created_at,updated_at")
+      .order("created_at", { ascending: false })
+      .limit(3000);
+
+    if (error) {
+      log("textBinId failed:", error.message);
+      return new Map();
+    }
+
+    const map = new Map();
+    for (const r of (data || [])) {
+      const code = norm(r?.bin_id);
+      if (!code) continue;
+      if (!map.has(code)) {
+        const ts = toMs(r.updated_at || r.created_at);
+        map.set(code, { status: norm(r?.status), ts });
+      }
+    }
+    return map;
+  }
+
+  async function fetchLatestTaskStatusByBinCode() {
+    const joined = await fetchTaskStatusJoinUUID();
+    const baseMap = (joined.ok && joined.map.size) ? joined.map : await fetchTaskStatusTextBinId();
+    return baseMap;
+  }
+
+  function normalizeTaskStatusForUI(statusRaw) {
+    const s = norm(statusRaw);
+    if (!s) return "";
+    if (s === "OPEN") return "ASSIGNED";
+    if (s === "DELIVERED" || s === "RECEIVED") return "IN_PROGRESS";
+    if (s === "ASSIGNED") return "ASSIGNED";
+    if (s === "STARTED") return "IN_PROGRESS";
+    if (s === "COLLECTED") return "COLLECTED";
+    if (s === "RECYCLED") return "RECYCLED";
+    return s;
+  }
+
+  // ✅ If bin updated AFTER last task timestamp => allow Assign again
+  function isTaskStillBlockingAssign(binLastUpdated, taskObjOrNull, overrideStatus) {
+    const binTs = toMs(binLastUpdated);
+
+    const dbTs = taskObjOrNull?.ts || 0;
+    const dbStatusUI = normalizeTaskStatusForUI(taskObjOrNull?.status || "");
+    const ovStatusUI = normalizeTaskStatusForUI(overrideStatus || "");
+
+    const taskIsStaleVsBinUpdate = binTs && dbTs && (binTs > dbTs);
+
+    const effective = (dbStatusUI || ovStatusUI);
+    const active = !!effective && !REMOVE_IF_TASK_STATUS_IN.has(effective);
+
+    if (taskIsStaleVsBinUpdate) return false;
+    return active;
+  }
+
+  // ✅ DB-safe: do NOT write fill_level (your DB doesn't have it)
+  async function upsertBinSafe(sb, base) {
+    const now = new Date().toISOString();
+
+    const payloads = [
+      { ...base, status: base.status, updated_at: now },
+      { ...base, status: base.status, last_updated: now },
+      { ...base, bin_status: base.status, updated_at: now },
+      { ...base, bin_status: base.status, last_updated: now },
+    ];
+
+    const conflicts = ["bin_id", "id"];
+    let lastErr = null;
+
+    for (const payload of payloads) {
+      for (const onConflict of conflicts) {
+        const res = await sb.from(BINS_TABLE).upsert(payload, { onConflict });
+        if (!res.error) return { ok: true };
+        lastErr = res.error;
+      }
+    }
+    return { ok: false, error: lastErr };
+  }
+
+  function ensurePinnedRowFirst(rows) {
+    if (!PINNED_BIN_ID) return rows;
+    const id = norm(PINNED_BIN_ID);
+
+    const idx = rows.findIndex(r => norm(r.binCode) === id);
+    if (idx >= 0) {
+      const [hit] = rows.splice(idx, 1);
+      rows.unshift(hit);
+      return rows;
+    }
+
+    rows.unshift({
+      raw: {},
+      binCode: id,
+      area: $("binarea")?.value?.trim() || "-",
+      status: $("status")?.value?.trim() || "-",
+      lastUpdated: new Date().toISOString(),
+      __pinnedStub: true
+    });
+
+    return rows;
+  }
+
+  /* =========================
+     ✅ MAIN RENDER
+     ✅ Removal is ONLY based on collection_records.bin_id
+     (No pickup task id needed to remove)
+  ========================= */
+  window.renderBins = async function renderBins() {
+    const body = $("binsBody");
+    if (!body) return;
+
+    const q = ($("searchBins")?.value || "").toLowerCase().trim();
+
+    const [binsRaw, taskMap, collectedBins] = await Promise.all([
+      fetchBinsAll(),
+      fetchLatestTaskStatusByBinCode(),                 // only for showing Assigned/Started label
+      fetchCollectedBinCodesFromCollectionRecords()     // ✅ for removal
+    ]);
+
+    let rows = binsRaw.map(normalizeBinRow);
+
+    // ✅ REMOVE if collection exists for that bin
+    rows = rows.filter(r => {
+      const code = norm(r.binCode);
+      if (PINNED_BIN_ID && norm(r.binCode) === norm(PINNED_BIN_ID)) return true;
+      return !collectedBins.has(code);
+    });
+
+    // Hide Empty only when no active task
+    if (HIDE_EMPTY_BINS) {
+      rows = rows.filter(r => {
+        if (PINNED_BIN_ID && norm(r.binCode) === norm(PINNED_BIN_ID)) return true;
+
+        const code = norm(r.binCode);
+        const t = taskMap.get(code);
+        const ov = getOverride(code);
+
+        const active = isTaskStillBlockingAssign(r.lastUpdated, t, ov);
+        if (active) return true;
+
+        return String(r.status || "").toLowerCase() !== "empty";
+      });
+    }
+
+    if (q) {
+      rows = rows.filter(r => {
+        if (PINNED_BIN_ID && norm(r.binCode) === norm(PINNED_BIN_ID)) return true;
+
+        const code = norm(r.binCode);
+        const t = taskMap.get(code);
+        const dbStatusUI = normalizeTaskStatusForUI(t?.status || "");
+        const ovStatusUI = normalizeTaskStatusForUI(getOverride(code) || "");
+        const effective = (dbStatusUI || ovStatusUI).toLowerCase();
+
+        return (
+          String(r.binCode || "").toLowerCase().includes(q) ||
+          String(r.area || "").toLowerCase().includes(q) ||
+          String(r.status || "").toLowerCase().includes(q) ||
+          effective.includes(q)
+        );
+      });
+    }
+
+    rows = ensurePinnedRowFirst(rows);
+
+    const me = await window.getMyProfileSafe?.().catch(() => null);
+    const isAdmin = me?.role === "admin";
+
+    body.innerHTML = rows.map(r => {
+      const code = norm(r.binCode);
+
+      const t = taskMap.get(code);
+      const dbStatusUI = normalizeTaskStatusForUI(t?.status || "");
+      const ovStatusUI = normalizeTaskStatusForUI(getOverride(code) || "");
+      const taskStatusUI = dbStatusUI || ovStatusUI;
+
+      if (dbStatusUI) clearOverride(code);
+
+      const taskBlocksAssign = isTaskStillBlockingAssign(r.lastUpdated, t, getOverride(code));
+
+      const displayStatus = (taskBlocksAssign && taskStatusUI && !REMOVE_IF_TASK_STATUS_IN.has(taskStatusUI))
+        ? (taskStatusUI === "IN_PROGRESS" ? "STARTED" : taskStatusUI)
+        : (r.status || "-");
+
+      const st = String(displayStatus).toLowerCase();
+      const badge =
+        st === "full" ? "badge red" :
+        st === "half" ? "badge amber" :
+        st === "assigned" ? "badge amber" :
+        st === "started" ? "badge amber" :
+        "badge";
+
+      const dt = r.lastUpdated ? new Date(r.lastUpdated) : null;
+      const when = dt && !isNaN(dt) ? dt.toLocaleString() : "-";
+
+      let actionHtml = "";
+      if (isAdmin) {
+        if (taskBlocksAssign) {
+          if (taskStatusUI === "ASSIGNED") {
+            actionHtml = `<button class="btn" type="button" disabled style="opacity:.75; cursor:not-allowed;">ASSIGNED</button>`;
+          } else if (taskStatusUI === "IN_PROGRESS") {
+            actionHtml = `<button class="btn" type="button" disabled style="opacity:.75; cursor:not-allowed;">IN PROGRESS</button>`;
+          } else {
+            actionHtml = `<button class="btn" type="button" disabled style="opacity:.75; cursor:not-allowed;">ACTIVE</button>`;
+          }
+        } else {
+          actionHtml = `<button class="btn" type="button" onclick="window.openAssignBinModal?.('${r.binCode}')">Assign</button>`;
+        }
+      }
+
+      return `
+        <tr>
+          <td>${r.binCode}</td>
+          <td>${r.area || "-"}</td>
+          <td><span class="${badge}">${displayStatus}</span></td>
+          <td>${when}</td>
+          <td class="nav-admin" style="display:${isAdmin ? "table-cell" : "none"};">
+            ${actionHtml}
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="5" style="opacity:.8;">No bins to show</td></tr>`;
+    }
+
+    if (PINNED_BIN_ID) setTimeout(() => { PINNED_BIN_ID = null; }, 800);
+  };
+
+  window.saveBin = async function saveBin() {
+    try {
+      const sb = await getSupabase();
+
+      const bin_id = $("binid")?.value?.trim();
+      const area   = $("binarea")?.value?.trim();
+      const status = $("status")?.value?.trim();
+
+      if (!bin_id) return showToast("Enter Bin ID");
+      if (!area) return showToast("Enter Area");
+      if (!status) return showToast("Select Status");
+
+      const base = { bin_id, area, status };
+      const r = await upsertBinSafe(sb, base);
+
+      if (!r.ok) {
+        console.error("saveBin upsert failed:", r.error);
+        return showToast(r.error?.message || "Failed to update bin (check DB columns/RLS)");
+      }
+
+      clearOverride(bin_id);
+      PINNED_BIN_ID = bin_id;
+
+      showToast("Bin updated");
+      await window.renderBins?.();
+    } catch (e) {
+      console.error(e);
+      showToast(e?.message || "Failed to update bin");
+    }
+  };
+
+  async function pollRealStatus(binCode) {
+    const target = norm(binCode);
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 250));
+      const m = await fetchLatestTaskStatusByBinCode();
+      const obj = m.get(target);
+      const st = normalizeTaskStatusForUI(obj?.status || "");
+      if (st) return st;
+    }
+    return "";
+  }
+
   window.addEventListener("DOMContentLoaded", async () => {
-    // Hide sidebar items immediately
     window.applyRoleMenu?.();
 
-    // ✅ Allowed: admin, worker, driver (NOT recycling_manager)
     const ok = await window.protectPage?.(["admin", "worker", "driver"]);
     if (!ok) return;
 
-    window.initProfileMenu?.();
-    window.setActiveNav?.(); // highlight current link
+    window.setActiveNav?.();
 
-    // Show Admin hint card
     try {
       const me = await window.getMyProfileSafe?.();
-      if (me?.role === "admin") {
-        document.getElementById("adminAssignHint").style.display = "block";
-      }
+      if (me?.role === "admin") $("adminAssignHint").style.display = "block";
     } catch {}
 
-    // Wire modal buttons (calls app.js functions if present)
-    document.getElementById("btnAssignBinCancel")?.addEventListener("click", () => {
-      window.closeAssignBinModal?.();
+    // realtime refresh if app.js provides it
+    try {
+      window.startPickupTasksRealtime?.(() => {
+        try { window.renderBins?.(); } catch {}
+      });
+    } catch {}
+
+    // refresh if another tab pings
+    window.addEventListener("storage", (e) => {
+      if (e.key === "refresh_recycling") window.renderBins?.();
+      if (e.key === "bins_refresh_ping") window.renderBins?.();
     });
 
-    document.getElementById("btnAssignBinConfirm")?.addEventListener("click", () => {
-      window.confirmAssignBin?.();
+    // refresh if app.js emits this event
+    window.addEventListener("app:pickup_tasks_changed", () => {
+      try { window.renderBins?.(); } catch {}
     });
 
-    // Render bins (app.js should inject Assign buttons for admin)
-    window.renderBins?.();
+    $("btnAssignBinCancel")?.addEventListener("click", () => window.closeAssignBinModal?.());
+
+    $("btnAssignBinConfirm")?.addEventListener("click", async () => {
+      const binCode = $("assignBinId")?.value || "";
+
+      await window.confirmAssignBin?.();
+
+      setOverride(binCode, "ASSIGNED");
+      await window.renderBins?.();
+
+      const real = await pollRealStatus(binCode);
+      if (real) {
+        setOverride(binCode, real);
+        await window.renderBins?.();
+      }
+    });
+
+    $("btnUpdateBin")?.addEventListener("click", () => window.saveBin?.());
+    $("searchBins")?.addEventListener("input", () => window.renderBins?.());
+
+    await window.renderBins?.();
+
+    $("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
+    $("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
   });
 </script>
 

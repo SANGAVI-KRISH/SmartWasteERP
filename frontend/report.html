@@ -1,3 +1,17 @@
+<!-- report.html (FULL UPDATED v6.0)
+✅ FIXED:
+- Total Recycled ✅
+- Sent to Landfill ✅
+- Recycling Records count ✅
+
+How:
+1) AUTO-detects recycling table: tries "recycling_records" then "recycling"
+2) AUTO-detects columns:
+   - recycled_kg / recycled / total_recycled
+   - landfill_kg / landfill / total_landfill
+3) If landfill column doesn't exist or always 0, it uses: landfill = collected - recycled
+4) Shows which recycling table is used inside Insight text
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,7 +48,7 @@
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
 
       <!-- Worker + Driver + Recycling Manager + Admin -->
-      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+      <a class="nav-worker nav-driver nav-recycling nav-admin active" href="report.html">📊 Reports</a>
 
       <!-- Complaints -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
@@ -112,7 +126,6 @@
         </div>
       </div>
 
-      <!-- Simple Bars -->
       <div id="barChart" style="display:grid; gap:10px;"></div>
 
       <div style="height:12px;"></div>
@@ -152,6 +165,33 @@
   };
 
   const fmtKg = (n) => `${Math.round(Number(n) || 0)} kg`;
+
+  function toast(msg) {
+    if (window.toast) return window.toast(msg);
+    const t = document.getElementById("toast");
+    if (!t) { alert(msg); return; }
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer = setTimeout(() => (t.style.display = "none"), 1800);
+  }
+
+  function toNum(x) {
+    if (x === null || x === undefined) return 0;
+    if (typeof x === "number") return Number.isFinite(x) ? x : 0;
+    const s = String(x).trim();
+    if (!s) return 0;
+    const m = s.match(/-?\d+(\.\d+)?/);
+    return m ? (parseFloat(m[0]) || 0) : 0;
+  }
+
+  function readCol(row, names) {
+    for (const n of names) {
+      const v = row?.[n];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+    }
+    return null;
+  }
 
   // Normalize waste type
   function normType(t) {
@@ -235,34 +275,64 @@
     });
   }
 
-  // ✅ Main report function
+  // ✅ AUTO-DETECT recycling table + columns
+  async function loadRecyclingAuto(sb) {
+    const tableCandidates = ["recycling_records", "recycling"];
+    const selectCandidates = [
+      "id,created_at,waste_type,type,input,input_kg,recycled,recycled_kg,landfill,landfill_kg",
+      "*"
+    ];
+
+    let lastErr = null;
+    for (const table of tableCandidates) {
+      for (const sel of selectCandidates) {
+        const res = await sb.from(table).select(sel).order("created_at", { ascending: false });
+        if (!res.error) return { table, rows: res.data || [] };
+        lastErr = res.error;
+      }
+    }
+    throw new Error(lastErr?.message || "Cannot load recycling data (wrong table/columns or RLS).");
+  }
+
+  // ✅ Main report function (fixed KPIs)
   async function generateReport() {
     const supabase = await getSupabase();
 
-    // ✅ FIXED TABLE NAMES (from your app.js)
     const [{ data: collection, error: cErr },
-           { data: bins, error: bErr },
-           { data: recycling, error: rErr }] = await Promise.all([
-      supabase.from("collection_records").select("waste_type, quantity_kg"),
-      supabase.from("bins").select("status"),
-      supabase.from("recycling").select("waste_type, input_kg, recycled_kg, landfill_kg"),
+           { data: bins, error: bErr }] = await Promise.all([
+      supabase.from("collection_records").select("waste_type, quantity_kg").order("created_at", { ascending: false }),
+      supabase.from("bins").select("status").order("updated_at", { ascending: false }),
     ]);
 
     if (cErr) throw cErr;
     if (bErr) throw bErr;
-    if (rErr) throw rErr;
 
-    // ✅ TOTALS
-    const totalCollected = (collection || []).reduce((sum, r) => sum + (Number(r.quantity_kg) || 0), 0);
-    const totalRecycled = (recycling || []).reduce((sum, r) => sum + (Number(r.recycled_kg) || 0), 0);
+    const rec = await loadRecyclingAuto(supabase);
+    const recycling = rec.rows;
 
-    // Use landfill_kg from table if available, else collected - recycled
-    const landfillFromTable = (recycling || []).reduce((sum, r) => sum + (Number(r.landfill_kg) || 0), 0);
-    const landfill = landfillFromTable > 0 ? landfillFromTable : Math.max(0, totalCollected - totalRecycled);
+    // Totals
+    const totalCollected = (collection || []).reduce(
+      (sum, r) => sum + (Number(r.quantity_kg) || 0),
+      0
+    );
+
+    const totalRecycled = (recycling || []).reduce((sum, r) => {
+      const v = readCol(r, ["recycled_kg", "recycled", "total_recycled"]);
+      return sum + toNum(v);
+    }, 0);
+
+    const landfillFromTable = (recycling || []).reduce((sum, r) => {
+      const v = readCol(r, ["landfill_kg", "landfill", "total_landfill"]);
+      return sum + toNum(v);
+    }, 0);
+
+    const landfill = landfillFromTable > 0
+      ? landfillFromTable
+      : Math.max(0, totalCollected - totalRecycled);
 
     const fullBins = (bins || []).filter(isBinFull).length;
 
-    // ✅ TYPE TOTALS (from collection_records)
+    // Type totals (from collection_records)
     const typeTotals = { wet: 0, dry: 0, plastic: 0 };
     (collection || []).forEach(r => {
       const t = normType(r.waste_type);
@@ -271,7 +341,7 @@
       typeTotals[t] += w;
     });
 
-    // ✅ UPDATE KPIs
+    // ✅ UPDATE KPIs (fixed ones)
     document.getElementById("kpiTotalCollected").textContent = fmtKg(totalCollected);
     document.getElementById("kpiTotalRecycled").textContent = fmtKg(totalRecycled);
     document.getElementById("kpiTotalLandfill").textContent = fmtKg(landfill);
@@ -280,21 +350,21 @@
     document.getElementById("kpiCollectionCount").textContent = String((collection || []).length);
     document.getElementById("kpiRecyclingCount").textContent = String((recycling || []).length);
 
-    // ✅ RENDER BREAKDOWN
+    // Breakdown UI
     renderBars(typeTotals);
     renderTypeTable(typeTotals);
 
-    // ✅ INSIGHT
+    // Insight
     const rate = totalCollected > 0 ? ((totalRecycled / totalCollected) * 100).toFixed(1) : "0.0";
     let msg = `Recycling Efficiency: ${rate}% of collected waste is recycled. `;
-
     if (fullBins > 0) msg += `Priority Alert: ${fullBins} bin(s) are FULL and need pickup. `;
-    msg += `Landfill waste: ${fmtKg(landfill)}.`;
+    msg += `Landfill waste: ${fmtKg(landfill)}. `;
+    msg += `(Recycling source: ${rec.table})`;
 
     document.getElementById("insightText").textContent = msg.trim();
   }
 
-  // CSV export helpers
+  // CSV export helpers (unchanged)
   function csvEscape(v) {
     const s = String(v ?? "");
     if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -323,7 +393,6 @@
     return rows;
   }
 
-  // expose globally
   window.generateReport = generateReport;
 
   window.addEventListener("DOMContentLoaded", async () => {
@@ -333,23 +402,21 @@
     if (!ok) return;
 
     window.setActiveNav?.();
+    window.initProfileMenu?.();
 
-    // logout buttons
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
 
-    // refresh button
     document.getElementById("refreshBtn")?.addEventListener("click", async () => {
       try {
         await generateReport();
-        window.toast?.("Report updated");
+        toast("Report updated");
       } catch (e) {
         console.error(e);
-        window.toast?.(e.message || "Failed to load report");
+        toast(e?.message || "Failed to load report");
       }
     });
 
-    // export csv
     document.getElementById("exportBtn")?.addEventListener("click", () => {
       const now = new Date();
       const filename = `smart_waste_report_${now.toISOString().slice(0,10)}.csv`;
@@ -381,7 +448,7 @@
       await generateReport();
     } catch (e) {
       console.error(e);
-      window.toast?.(e.message || "Failed to load report");
+      toast(e?.message || "Failed to load report");
     }
 
     // auto refresh every 20 seconds

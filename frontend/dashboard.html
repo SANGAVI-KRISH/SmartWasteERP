@@ -1,3 +1,10 @@
+<!-- dashboard.html (FULL UPDATED v4.7)
+✅ FIXED:
+- Total Recycled updates reliably (same Supabase-wait method as report.html)
+- Prevents app.js renderDashboard() from overwriting recycled KPI back to 0
+✅ REMOVED:
+- "(source: ...)" debug text removed completely
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,32 +22,24 @@
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints (optional) - if you use complaints.html -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
-    <!-- Sidebar logout -->
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
@@ -108,33 +107,208 @@
 <!-- app.js -->
 <script type="module" src="app.js"></script>
 
-<!-- PAGE INIT -->
 <script type="module">
+  function $(id) { return document.getElementById(id); }
+
+  function toast(msg) {
+    if (window.toast) return window.toast(msg);
+    const t = $("toast");
+    if (!t) { alert(msg); return; }
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer = setTimeout(() => (t.style.display = "none"), 1800);
+  }
+
+  // ✅ SAME METHOD AS report.html: wait for window.supabase
+  const getSupabase = async () => {
+    if (window.supabase) return window.supabase;
+    for (let i = 0; i < 40; i++) { // ~4 seconds
+      await new Promise(r => setTimeout(r, 100));
+      if (window.supabase) return window.supabase;
+    }
+    throw new Error("Supabase client not found. Ensure app.js sets window.supabase");
+  };
+
+  function toNum(x) {
+    if (x === null || x === undefined) return 0;
+    if (typeof x === "number") return Number.isFinite(x) ? x : 0;
+    const s = String(x).trim();
+    if (!s) return 0;
+    const m = s.match(/-?\d+(\.\d+)?/);
+    return m ? (parseFloat(m[0]) || 0) : 0;
+  }
+
+  function readCol(row, names) {
+    for (const n of names) {
+      const v = row?.[n];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+    }
+    return null;
+  }
+
+  // ✅ Auto-detect recycling table (same style as report)
+  async function loadRecyclingAuto(sb) {
+    const tableCandidates = ["recycling_records", "recycling", "recycle_records", "recycle"];
+    const selectCandidates = [
+      "id,created_at,waste_type,type,input,input_kg,weight_kg,quantity_kg,collected_kg,recycled,recycled_kg,total_recycled,total_weight,total_kg,kg",
+      "*"
+    ];
+
+    let lastErr = null;
+    for (const table of tableCandidates) {
+      for (const sel of selectCandidates) {
+        const res = await sb.from(table).select(sel).order("created_at", { ascending: false });
+        if (!res.error) return { table, rows: res.data || [] };
+        lastErr = res.error;
+      }
+    }
+    throw new Error(lastErr?.message || "Cannot load recycling data (wrong table/columns or RLS).");
+  }
+
+  async function getTotalRecycled(sb) {
+    const rec = await loadRecyclingAuto(sb);
+    const rows = rec.rows || [];
+
+    const kgCols = [
+      "recycled_kg", "recycled", "total_recycled",
+      "input_kg", "weight_kg", "input", "weight",
+      "quantity_kg", "collected_kg", "collection_kg",
+      "kg", "waste_kg", "total_weight", "total_kg", "total",
+      "recycledKg", "qty_kg", "qty"
+    ];
+
+    const sum = rows.reduce((acc, r) => {
+      const v = readCol(r, kgCols);
+      return acc + toNum(v);
+    }, 0);
+
+    return sum;
+  }
+
+  // ✅ Trips Completed (unchanged)
+  async function getTripsCompleted(sb) {
+    const candidates = [
+      { table: "staff_tasks", cols: ["status"], doneAny: ["COMPLETED"] },
+      { table: "trips", cols: ["status", "trip_status"], doneAny: ["COMPLETED", "DONE"] },
+      { table: "trip_logs", cols: ["status", "trip_status", "action"], doneAny: ["COMPLETED", "TRIP_COMPLETED", "DONE"] },
+      { table: "staff_vehicle_logs", cols: ["status", "trip_status", "action"], doneAny: ["COMPLETED", "TRIP_COMPLETED", "DONE"] },
+      { table: "vehicle_logs", cols: ["status", "trip_status", "action"], doneAny: ["COMPLETED", "TRIP_COMPLETED", "DONE"] },
+    ];
+
+    for (const t of candidates) {
+      const sel = ["id", ...t.cols].join(",");
+      const res = await sb.from(t.table).select(sel);
+      if (res.error) continue;
+
+      const rows = res.data || [];
+      const doneSet = new Set(t.doneAny.map(x => String(x).toUpperCase()));
+
+      let count = 0;
+      for (const r of rows) {
+        let val = "";
+        for (const c of t.cols) {
+          const v = r?.[c];
+          if (v !== undefined && v !== null && String(v).trim() !== "") {
+            val = String(v).toUpperCase().trim();
+            break;
+          }
+        }
+        if (doneSet.has(val)) count++;
+      }
+      return { ok: true, count };
+    }
+
+    // fallback localStorage
+    try {
+      const localTrips = JSON.parse(localStorage.getItem("trips") || "[]");
+      const done = (Array.isArray(localTrips) ? localTrips : []).filter(t =>
+        String(t?.status || "").toUpperCase().trim() === "COMPLETED"
+      ).length;
+      return { ok: true, count: done };
+    } catch {
+      return { ok: false, count: 0 };
+    }
+  }
+
+  // overwrite-proof cache
+  let __lastGoodRecycledKg = null;
+
+  async function updateOnlyRecycledAndTrips() {
+    const sb = await getSupabase();
+
+    // Total Recycled
+    const sum = await getTotalRecycled(sb);
+    const kg = Math.round(sum);
+    __lastGoodRecycledKg = kg;
+    $("kpiRecycled").textContent = `${kg} kg`;
+
+    // Trips Completed
+    const trips = await getTripsCompleted(sb);
+    if (trips.ok) $("kpiTripsCompleted").textContent = String(trips.count);
+  }
+
+  // ✅ If app.js overwrites recycled KPI to 0 later, restore our correct value
+  function startRecycledOverwriteGuard() {
+    const el = $("kpiRecycled");
+    if (!el) return;
+
+    const obs = new MutationObserver(() => {
+      const txt = (el.textContent || "").trim();
+      if (__lastGoodRecycledKg !== null && (txt === "0 kg" || txt === "0kg")) {
+        el.textContent = `${__lastGoodRecycledKg} kg`;
+      }
+    });
+
+    obs.observe(el, { childList: true, subtree: true, characterData: true });
+  }
+
   window.addEventListener("DOMContentLoaded", async () => {
-    // 1) Hide menu immediately
     window.applyRoleMenu?.();
 
-    // ✅ Dashboard allowed for all your roles
     const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
     if (!ok) return;
 
     window.setActiveNav?.();
     window.initProfileMenu?.();
 
-    // Dashboard KPIs
-    window.renderDashboard?.();
+    $("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
+    $("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
 
-    // Trips Completed KPI (if stored locally)
+    // 1) Run app.js dashboard (collected + bins)
     try {
-      const trips = JSON.parse(localStorage.getItem("trips")) || [];
-      const done = trips.filter(t => t.status === "Completed").length;
-      const el = document.getElementById("kpiTripsCompleted");
-      if (el) el.textContent = done;
-    } catch {}
+      const maybePromise = window.renderDashboard?.();
+      if (maybePromise && typeof maybePromise.then === "function") {
+        await maybePromise;
+      } else {
+        // allow app.js async fetch to finish before we set recycled
+        await new Promise(r => setTimeout(r, 250));
+      }
+    } catch (e) {
+      console.warn("renderDashboard failed:", e);
+    }
 
-    // Logout clicks
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
+    // 2) Now update recycled + trips safely
+    try {
+      await updateOnlyRecycledAndTrips();
+    } catch (e) {
+      console.error(e);
+      toast(e?.message || "Dashboard KPI update failed");
+    }
+
+    // 3) Guard against overwrites
+    startRecycledOverwriteGuard();
+
+    // auto refresh every 20s
+    setInterval(async () => {
+      try {
+        const p = window.renderDashboard?.();
+        if (p && typeof p.then === "function") await p;
+        else await new Promise(r => setTimeout(r, 250));
+
+        await updateOnlyRecycledAndTrips();
+      } catch {}
+    }, 20000);
   });
 </script>
 
