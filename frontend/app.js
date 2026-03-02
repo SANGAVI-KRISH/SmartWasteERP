@@ -1,14 +1,3 @@
-// app.js (FULL UPDATED v3.9.0)
-// ✅ v3.9.0 changes
-// 1) ✅ Realtime helper for pickup_tasks (used by Recycling dropdown to update instantly)
-// 2) ✅ Whenever pickup task becomes COLLECTED / RECYCLED → broadcast refresh event + localStorage ping
-// 3) ✅ Global logout button wiring (#logoutBtnTop / #logoutBtnSidebar) on every page
-// 4) ✅ Profile dropdown works only when #profileBtn + #profileDropdown exists (safe)
-// 5) Keeps your v3.8.1 logic: Trip + Manual + Collection Activity Logs + Bin Empty on Collected
-//
-// ⚠️ DB NOTE (as you wrote)
-// collection_records: id, user_id, date, area, waste_type, quantity_kg, created_at, bin_id, task_id, staff_task_id, vehicle_id
-
 import { API_URL as RAW_API_URL } from "./config.js";
 import { supabase } from "./supabaseClient.js";
 
