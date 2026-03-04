@@ -20,7 +20,7 @@
 
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
+      <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
 
       <a class="nav-worker nav-driver nav-admin active" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
@@ -107,7 +107,7 @@
           <div class="label">Vehicle ID (optional)</div>
           <input type="text" id="vehicleId" placeholder="Eg: TN-37-WM-1023">
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            If DB has <b>vehicle_id</b> column, it will be saved. Otherwise reference only.
+            If DB has <b>vehicle_id</b> column, it will be saved.
           </div>
         </div>
 
@@ -116,7 +116,7 @@
           <div class="label">Bin ID (optional)</div>
           <input type="text" id="binId" placeholder="Eg: B001">
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            Saved only if your table has <b>bin_id</b> column. Otherwise reference only.
+            If DB has <b>bin_id</b> column, it will be saved (needed to remove from Bin Status after collection).
           </div>
         </div>
 
@@ -233,17 +233,20 @@
     return true;
   }
 
-  async function safeInsertCollection(sb, payloadFull, payloadFallback) {
-    let r1 = await sb.from("collection_records").insert([payloadFull]);
-    if (!r1.error) return { ok: true, usedFallback: false };
+  /* ==========================================================
+     ✅ UPDATED: No silent fallback
+     Reason: bins removal needs bin_id stored in collection_records.
+     If bin_id/vehicle_id columns are missing, show error clearly.
+  ========================================================== */
+  async function safeInsertCollection(sb, payload) {
+    const { data, error } = await sb
+      .from("collection_records")
+      .insert([payload])
+      .select()
+      .maybeSingle();
 
-    const msg = (r1.error.message || "").toLowerCase();
-    if (msg.includes("column") && msg.includes("does not exist")) {
-      const r2 = await sb.from("collection_records").insert([payloadFallback]);
-      if (r2.error) return { ok: false, error: r2.error.message };
-      return { ok: true, usedFallback: true };
-    }
-    return { ok: false, error: r1.error.message };
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data };
   }
 
   async function autofillFromUrl() {
@@ -356,6 +359,7 @@
       }
       rows = r.data || [];
     } else {
+      // ✅ We expect these columns to exist now (bin_id, vehicle_id etc.)
       const selectFull = "id,date,area,waste_type,quantity_kg,task_id,staff_task_id,vehicle_id,bin_id,created_at,user_id";
       const r1 = await sb
         .from("collection_records")
@@ -363,29 +367,13 @@
         .order("created_at", { ascending: false })
         .limit(300);
 
-      if (!r1.error) {
-        rows = r1.data || [];
-      } else {
-        const msg = (r1.error.message || "").toLowerCase();
-        if (msg.includes("column") && msg.includes("does not exist")) {
-          const r2 = await sb
-            .from("collection_records")
-            .select("id,date,area,waste_type,quantity_kg,task_id,staff_task_id,created_at,user_id")
-            .order("created_at", { ascending: false })
-            .limit(300);
-
-          if (r2.error) {
-            console.log("renderCollections error:", r2.error);
-            body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r2.error.message)}</td></tr>`;
-            return;
-          }
-          rows = r2.data || [];
-        } else {
-          console.log("renderCollections error:", r1.error);
-          body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r1.error.message)}</td></tr>`;
-          return;
-        }
+      if (r1.error) {
+        console.log("renderCollections error:", r1.error);
+        body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r1.error.message)}</td></tr>`;
+        return;
       }
+
+      rows = r1.data || [];
     }
 
     const taskIds = (rows || []).map(r => r.task_id).filter(Boolean);
@@ -494,7 +482,7 @@
     return { ok: false, error: u1.error.message };
   }
 
-  // ✅ FIXED: removed fill_level (your DB doesn't have it)
+  // ✅ After collected, set bin to Empty (same as your code)
   async function emptyBinAfterCollected(sb, task_id, fallbackBinCodeFromInput) {
     if (!task_id) return { ok: false, error: "no task_id" };
 
@@ -591,7 +579,9 @@
       if (!area) { toast("Area is required.", false); return; }
       if (!Number.isFinite(quantity_kg) || quantity_kg <= 0) { toast("Quantity must be > 0.", false); return; }
 
-      const payloadFull = {
+      // ✅ IMPORTANT:
+      // This MUST succeed with bin_id column in DB, otherwise bins removal won't work.
+      const payload = {
         user_id: session.user.id,
         date,
         area,
@@ -603,17 +593,7 @@
         bin_id: bin_id_input
       };
 
-      const payloadFallback = {
-        user_id: session.user.id,
-        date,
-        area,
-        waste_type,
-        quantity_kg,
-        task_id,
-        staff_task_id
-      };
-
-      const r = await safeInsertCollection(sb, payloadFull, payloadFallback);
+      const r = await safeInsertCollection(sb, payload);
       if (!r.ok) {
         toast("Save failed: " + r.error, false);
         return;
@@ -624,11 +604,7 @@
         await emptyBinAfterCollected(sb, task_id, bin_id_input);
       }
 
-      toast(r.usedFallback
-        ? "Collection saved ✅ (vehicle/bin not saved because DB columns not found)"
-        : "Collection saved ✅"
-      );
-
+      toast("Collection saved ✅");
       if ($("qty")) $("qty").value = "";
 
       await renderCollections();

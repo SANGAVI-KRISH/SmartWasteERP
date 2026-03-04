@@ -28,6 +28,60 @@ function emit(name, detail = {}) {
 window.__appPing = ping;
 window.__appEmit = emit;
 
+
+// =======================
+// OSM Nominatim Geocode
+// =======================
+let __lastGeoTime = 0;
+
+async function geocodeAreaToLatLng(area) {
+  const q = String(area || "").trim();
+  if (!q) return null;
+
+  // Be polite: max 1 request per second
+  const now = Date.now();
+  const wait = Math.max(0, 1100 - (now - __lastGeoTime));
+  if (wait) await new Promise(r => setTimeout(r, wait));
+  __lastGeoTime = Date.now();
+
+  const url =
+    "https://nominatim.openstreetmap.org/search?" +
+    new URLSearchParams({
+      format: "json",
+      q: `${q}, Tamil Nadu, India`,
+      limit: "1"
+    }).toString();
+
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json" }
+  });
+
+  if (!res.ok) throw new Error(`Geocode failed (${res.status})`);
+
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) return null;
+
+  return {
+    latitude: Number(data[0].lat),
+    longitude: Number(data[0].lon),
+    display_name: data[0].display_name
+  };
+}
+
+// Call this before saving bin
+async function ensureBinHasCoords(bin) {
+  const hasLat = Number.isFinite(Number(bin.latitude));
+  const hasLng = Number.isFinite(Number(bin.longitude));
+  if (hasLat && hasLng) return bin; // already has coords
+
+  const area = bin.area || bin.location || bin.location_name;
+  const ll = await geocodeAreaToLatLng(area);
+  if (!ll) throw new Error(`Could not find coordinates for area: ${area}`);
+
+  return { ...bin, latitude: ll.latitude, longitude: ll.longitude };
+}
+
+
 /* =========================
    ✅ COLLECTION RECORDS: SAME FOR ALL ROLES
 ========================= */

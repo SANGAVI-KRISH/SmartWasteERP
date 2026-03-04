@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
   <style>
-    #map {
+    #map{
       height: 75vh;
       border-radius: 14px;
       overflow: hidden;
@@ -24,44 +24,30 @@
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
-
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
-      <a class="nav-all" href="map.html">📍 View Live Location</a>
+      <a class="nav-all active" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
+      <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
-      <a class="nav-worker nav-driver nav-recycling nav-admin" href="tasks.html">📋 My Tasks</a>
-
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
-
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
-
-      <!-- Complaints (optional) -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
-
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
   <!-- MAIN -->
   <main class="main">
-
-    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
-        <h1>Filled Bins Map</h1>
-        <p class="sub">Shows bins with status = Full</p>
+        <h1>Bins Needing Collection</h1>
+        <p class="sub">Live pins for bins that are <b>FULL</b> (Auto-fix 0,0 using Nominatim)</p>
       </div>
 
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
@@ -80,7 +66,6 @@
     <div class="card">
       <div id="map"></div>
     </div>
-
   </main>
 </div>
 
@@ -92,24 +77,269 @@
 <!-- app.js -->
 <script type="module" src="./app.js"></script>
 
-<!-- PAGE INIT -->
 <script type="module">
+  import { supabase } from "./supabaseClient.js";
+
+  let map;
+  let markersLayer;
+  let refreshTimer = null;
+  let realtimeChannel = null;
+
+  function toast(msg) {
+    if (window.toast) return window.toast(msg);
+    const t = document.getElementById("toast");
+    if (!t) return alert(msg);
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(window.__toastTimer);
+    window.__toastTimer = setTimeout(() => (t.style.display = "none"), 1700);
+  }
+
+  async function getCurrentLocationFallback() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({ lat: 11.0168, lng: 76.9558 });
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve({ lat: 11.0168, lng: 76.9558 }),
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    });
+  }
+
+  function initMap(centerLat, centerLng, zoom = 7) {
+    map = L.map("map", { zoomControl: true }).setView([centerLat, centerLng], zoom);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(map);
+
+    markersLayer = L.layerGroup().addTo(map);
+  }
+
+  function clearMarkers() {
+    markersLayer?.clearLayers();
+  }
+
+  // 🔴 red pin (FULL bins)
+  const redIcon = L.icon({
+    iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -28]
+  });
+
+  function normalizeStatus(bin) {
+    return String(bin.status ?? "").trim().toLowerCase();
+  }
+
+  // ✅ ONLY status === "full"
+  function isNeedCollection(bin) {
+    return normalizeStatus(bin) === "full";
+  }
+
+  // ✅ Nominatim Geocode (no API key)
+  async function geocodePlace(place) {
+    const url =
+      "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
+      encodeURIComponent(place);
+
+    const res = await fetch(url, {
+      headers: {
+        // browser may override, but still ok
+        "Accept": "application/json"
+      }
+    });
+
+    const data = await res.json().catch(() => []);
+    if (!Array.isArray(data) || data.length === 0) return null;
+
+    const lat = Number(data[0].lat);
+    const lng = Number(data[0].lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    return { lat, lng };
+  }
+
+  // Support multiple column names:
+  // latitude/longitude OR lat/lng
+  // ✅ also reject (0,0)
+  function getLatLngStrict(bin) {
+    const lat = Number(bin.latitude ?? bin.lat);
+    const lng = Number(bin.longitude ?? bin.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    if (lat === 0 && lng === 0) return null; // ✅ prevent wrong pin (Null Island)
+    return { lat, lng };
+  }
+
+  function getAreaText(bin) {
+    return (
+      bin.area ??
+      bin.location ??
+      bin.address ??
+      bin.zone ??
+      ""
+    );
+  }
+
+  // ✅ If FULL bin has no coordinates, try geocode area and save back to Supabase
+  async function ensureBinHasCoordinates(bin) {
+    const existing = getLatLngStrict(bin);
+    if (existing) return existing;
+
+    const area = getAreaText(bin);
+    if (!area) return null;
+
+    // Add country/state for better accuracy
+    const query = area.toLowerCase().includes("india")
+      ? area
+      : `${area}, Tamil Nadu, India`;
+
+    const coords = await geocodePlace(query);
+    if (!coords) return null;
+
+    // Update DB (best effort)
+    const idCol = (bin.bin_id != null) ? "bin_id" : "id";
+    const idVal = (bin.bin_id != null) ? bin.bin_id : bin.id;
+
+    if (idVal != null) {
+      const { error } = await supabase
+        .from("bins")
+        .update({ latitude: coords.lat, longitude: coords.lng })
+        .eq(idCol, idVal);
+
+      if (error) {
+        console.warn("⚠️ Could not update coords in bins table:", error.message || error);
+      } else {
+        // also update local object so marker uses new coords
+        bin.latitude = coords.lat;
+        bin.longitude = coords.lng;
+      }
+    }
+
+    return coords;
+  }
+
+  async function addBinMarker(bin) {
+    if (!isNeedCollection(bin)) return;
+
+    // ✅ ensure coords exist (or geocode + update)
+    const ll = await ensureBinHasCoordinates(bin);
+    if (!ll) return;
+
+    const id = bin.bin_id ?? bin.id ?? "-";
+    const area = getAreaText(bin) || "Unknown";
+    const status = bin.status ?? "Unknown";
+    const updated = bin.updated_at ? new Date(bin.updated_at).toLocaleString() : "";
+
+    const popup = `
+      <div style="min-width:220px">
+        <div style="font-weight:800; margin-bottom:6px;">🗑 Bin Needs Collection</div>
+        <div><b>Bin ID:</b> ${id}</div>
+        <div><b>Area:</b> ${area}</div>
+        <div><b>Status:</b> ${status}</div>
+        ${updated ? `<div><b>Last Updated:</b> ${updated}</div>` : ""}
+        <div style="margin-top:6px; font-size:12px; opacity:.75;">
+          ${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}
+        </div>
+      </div>
+    `;
+
+    L.marker([ll.lat, ll.lng], { icon: redIcon })
+      .addTo(markersLayer)
+      .bindPopup(popup);
+  }
+
+  async function fetchBinsLive() {
+    const { data, error } = await supabase
+      .from("bins")
+      .select("*")
+      .limit(500);
+
+    if (error) {
+      console.error("❌ Supabase bins SELECT error:", error);
+      toast("Failed to load bins: " + (error.message || ""));
+      return [];
+    }
+    return data || [];
+  }
+
+  async function renderLivePins({ keepView = false } = {}) {
+    const bins = await fetchBinsLive();
+
+    clearMarkers();
+
+    // ✅ add markers sequentially (because geocode/update is async)
+    for (const bin of bins) {
+      await addBinMarker(bin);
+    }
+
+    if (keepView) return;
+
+    // bounds from bins which now have coords
+    const latlngs = [];
+    for (const bin of bins) {
+      if (!isNeedCollection(bin)) continue;
+      const ll = getLatLngStrict(bin);
+      if (ll) latlngs.push([ll.lat, ll.lng]);
+    }
+
+    if (latlngs.length >= 2) {
+      map.fitBounds(latlngs, { padding: [30, 30] });
+    } else if (latlngs.length === 1) {
+      map.setView(latlngs[0], 13);
+    }
+  }
+
+  function startPollingFallback() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => renderLivePins({ keepView: true }), 15000);
+  }
+
+  function startRealtimeUpdates() {
+    realtimeChannel = supabase
+      .channel("bins-live-map")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bins" },
+        async () => {
+          await renderLivePins({ keepView: true });
+        }
+      )
+      .subscribe((status) => {
+        console.log("📡 Realtime status:", status);
+      });
+  }
+
+  function cleanup() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = null;
+
+    if (realtimeChannel) {
+      supabase.removeChannel(realtimeChannel);
+      realtimeChannel = null;
+    }
+  }
+
+  window.addEventListener("beforeunload", cleanup);
+
   window.addEventListener("DOMContentLoaded", async () => {
-    // 1) Hide menu immediately
     window.applyRoleMenu?.();
 
-    // ✅ Everyone in your system can view live location
     const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
     if (!ok) return;
 
     window.setActiveNav?.();
 
-    // Render map (make sure renderFullBinsMap exists in app.js)
-    await window.renderFullBinsMap?.();
+    const loc = await getCurrentLocationFallback();
+    initMap(loc.lat, loc.lng, 7);
 
-    // Logout buttons
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
+    await renderLivePins();
+    startRealtimeUpdates();
+    startPollingFallback();
+
+    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
+    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
   });
 </script>
 
