@@ -19,7 +19,7 @@ const binsRoutes = require("./routes/bins.routes.js");
 const collectionRoutes = require("./routes/collection.routes.js");
 const complaintsRoutes = require("./routes/complaints.routes.js");
 const financeRoutes = require("./routes/finance.routes.js");
-const salaryRoutes = require("./routes/salary.routes");
+const salaryRoutes = require("./routes/salary.routes.js");
 
 dotenv.config();
 
@@ -30,27 +30,34 @@ const app = express();
 -------------------------- */
 const ALLOWED_ORIGINS = [
   "https://smartwaste-erp.netlify.app",
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
 ];
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // Postman/curl/no-origin
+const corsOptions = {
+  origin: (origin, cb) => {
+    // allow requests with no origin (Postman, curl, mobile apps, same-server health checks)
+    if (!origin) return cb(null, true);
 
-      const isLocalhost =
-        /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin);
+    const isLocalhost =
+      /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin);
 
-      if (ALLOWED_ORIGINS.includes(origin) || isLocalhost) {
-        return cb(null, true);
-      }
+    if (ALLOWED_ORIGINS.includes(origin) || isLocalhost) {
+      return cb(null, true);
+    }
 
-      return cb(new Error("Not allowed by CORS: " + origin));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+    console.warn("CORS blocked origin:", origin);
+    return cb(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(express.json());
 
@@ -115,6 +122,14 @@ app.get("/", (req, res) => {
   res.send("Smart Waste ERP Backend Running 🚀");
 });
 
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+    message: "Backend is healthy",
+    time: new Date().toISOString(),
+  });
+});
+
 app.get("/api/debug-auth", requireSupabase, async (req, res) => {
   try {
     const { error } = await supabaseAdmin
@@ -140,11 +155,12 @@ app.get("/api/debug-auth", requireSupabase, async (req, res) => {
 ========================================================= */
 app.post("/api/create-profile", requireSupabase, async (req, res) => {
   try {
-    let { id, email, role, area } = req.body;
+    let { id, email, role, area, full_name } = req.body;
 
     email = String(email || "").trim().toLowerCase();
     role = normalizeRole(role);
     area = String(area || "").trim();
+    full_name = String(full_name || "Not set").trim();
 
     if (!id || !email || !role || !area) {
       return res.status(400).json({ error: "Missing fields" });
@@ -158,13 +174,19 @@ app.post("/api/create-profile", requireSupabase, async (req, res) => {
 
     const { error } = await supabaseAdmin
       .from("profiles")
-      .upsert([{ id, email, role, area }], { onConflict: "id" });
+      .upsert([{ id, email, role, area, full_name }], { onConflict: "id" });
 
     if (error) {
       return res.status(400).json({ error: error.message });
     }
 
-    return res.json({ ok: true, message: "Profile created ✅", role, area });
+    return res.json({
+      ok: true,
+      message: "Profile created ✅",
+      role,
+      area,
+      full_name,
+    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -175,11 +197,12 @@ app.post("/api/create-profile", requireSupabase, async (req, res) => {
 -------------------------- */
 app.post("/api/signup", requireSupabase, async (req, res) => {
   try {
-    let { email, password, role, area } = req.body;
+    let { email, password, role, area, full_name } = req.body;
 
     email = String(email || "").trim().toLowerCase();
     role = normalizeRole(role);
     area = String(area || "").trim();
+    full_name = String(full_name || "Not set").trim();
 
     if (!email || !password || !role || !area) {
       return res.status(400).json({ error: "Missing fields" });
@@ -195,6 +218,11 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
       email,
       password,
       email_confirm: true,
+      user_metadata: {
+        full_name,
+        role,
+        area,
+      },
     });
 
     if (error || !data?.user) {
@@ -208,7 +236,10 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
 
     const { error: perr } = await supabaseAdmin
       .from("profiles")
-      .upsert([{ id: userId, email, role, area }], { onConflict: "id" });
+      .upsert(
+        [{ id: userId, email, role, area, full_name }],
+        { onConflict: "id" }
+      );
 
     if (perr) {
       return res.status(400).json({
@@ -221,7 +252,7 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
       ok: true,
       message: "User created ✅",
       user: { id: userId, email },
-      profile: { role, area },
+      profile: { role, area, full_name },
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -257,7 +288,7 @@ app.post("/api/login", requireSupabase, async (req, res) => {
 
     const { data: profile, error: perr } = await supabaseAdmin
       .from("profiles")
-      .select("role, area, email, id")
+      .select("role, area, email, id, full_name")
       .eq("id", data.user.id)
       .maybeSingle();
 
@@ -278,7 +309,10 @@ app.post("/api/login", requireSupabase, async (req, res) => {
     return res.json({
       ok: true,
       token,
-      user: { id: data.user.id, email: data.user.email },
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+      },
       profile,
     });
   } catch (e) {
@@ -294,7 +328,7 @@ app.get("/api/profile-basic", authMiddleware, requireSupabase, async (req, res) 
   try {
     const { data, error } = await supabaseAdmin
       .from("profiles")
-      .select("role, area, email, id")
+      .select("role, area, email, id, full_name")
       .eq("id", req.user.id)
       .maybeSingle();
 
@@ -337,6 +371,13 @@ app.use((req, res) => {
 -------------------------- */
 app.use((err, req, res, next) => {
   console.error("❌ Server error:", err.message);
+
+  if (err.message && err.message.includes("CORS")) {
+    return res.status(403).json({
+      error: err.message,
+    });
+  }
+
   res.status(500).json({
     error: err.message || "Internal server error",
   });
