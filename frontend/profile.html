@@ -10,47 +10,38 @@
 <body>
 <div class="container">
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+      <a class="nav-admin" href="finance.html">💰 Finance</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints (optional) -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
 
-    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1>My Profile</h1>
-        <p class="sub">View your details & change password</p>
+        <p class="sub">View your details, salary & change password</p>
       </div>
 
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
@@ -67,7 +58,6 @@
       </div>
     </div>
 
-    <!-- PROFILE CARD -->
     <div class="card">
       <h2>Account Details</h2>
 
@@ -99,7 +89,43 @@
       </div>
     </div>
 
-    <!-- CHANGE PASSWORD -->
+    <div class="card" style="margin-top:14px;">
+      <h2>My Salary</h2>
+      <p class="sub">View your current salary details</p>
+
+      <div class="form" style="margin-top:12px;">
+        <label class="field">
+          <span>Month</span>
+          <input id="salaryMonth" disabled value="-" />
+        </label>
+
+        <label class="field">
+          <span>Total Waste Collected (kg)</span>
+          <input id="salaryKg" disabled value="0" />
+        </label>
+
+        <label class="field">
+          <span>Rate per Kg (₹)</span>
+          <input id="salaryRate" disabled value="0" />
+        </label>
+
+        <label class="field">
+          <span>Total Salary (₹)</span>
+          <input id="salaryAmount" disabled value="0" />
+        </label>
+
+        <label class="field">
+          <span>Status</span>
+          <input id="salaryStatus" disabled value="Pending" />
+        </label>
+
+        <label class="field">
+          <span>Paid At</span>
+          <input id="salaryPaidAt" disabled value="-" />
+        </label>
+      </div>
+    </div>
+
     <div class="card" style="margin-top:14px;">
       <h2>Change Password</h2>
       <p class="sub">Enter a new password and update</p>
@@ -127,50 +153,6 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- app.js -->
-<script type="module" src="app.js"></script>
-
-<!-- page init -->
-<script type="module">
-  window.addEventListener("DOMContentLoaded", async () => {
-    // 1) Hide menu immediately
-    window.applyRoleMenu?.();
-
-    // ✅ Profile allowed for all roles
-    const ok = await window.protectPage?.(["admin","worker","driver","recycling_manager"]);
-    if (!ok) return;
-
-    window.setActiveNav?.();
-
-    // Load profile data
-    await window.loadProfile?.();
-
-    // Logout buttons
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
-
-    // Change password (with confirm check)
-    document.getElementById("updatePasswordBtn")?.addEventListener("click", async () => {
-      const np = document.getElementById("newPassword")?.value || "";
-      const cp = document.getElementById("confirmNewPassword")?.value || "";
-      const msg = document.getElementById("msg");
-
-      if (!np || np.length < 6) {
-        if (msg) msg.textContent = "Password must be at least 6 characters";
-        window.toast?.("Password must be at least 6 characters");
-        return;
-      }
-      if (np !== cp) {
-        if (msg) msg.textContent = "Passwords do not match";
-        window.toast?.("Passwords do not match");
-        return;
-      }
-
-      if (msg) msg.textContent = "";
-      await window.changePassword?.();
-    });
-  });
-</script>
-
+<script type="module" src="./js/profile.js"></script>
 </body>
 </html>

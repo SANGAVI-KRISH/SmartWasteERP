@@ -1,4 +1,3 @@
-<!-- staff_vehicle.html (FULL UPDATED v2 - Manual Task Vehicle ID added) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,43 +10,33 @@
 <body>
 <div class="container">
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin active" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
-
-      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-admin" href="finance.html">💰 Finance</a>
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
 
-    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Staff & Vehicle Activity</h1>
@@ -67,8 +56,6 @@
       </div>
     </div>
 
-    <!-- ✅ ADMIN: MANUAL TASK ASSIGNMENT -->
-    <!-- NOTE: app.js should show/hide this card based on role -->
     <div class="card" id="adminManualTaskCard" style="display:none; margin-bottom:14px;">
       <h2 style="margin-top:0;">Admin: Create & Assign Manual Task</h2>
       <p class="sub" style="margin-top:-6px; opacity:.85;">
@@ -104,7 +91,6 @@
           <input id="manualRoute" placeholder="Eg: Peelamedu Route-2" />
         </div>
 
-        <!-- ✅ NEW: Vehicle ID for Manual Task -->
         <div>
           <div class="label">Vehicle ID (optional)</div>
           <input id="manualVehicleId" placeholder="Eg: TN-37-WM-1023" />
@@ -140,7 +126,6 @@
       </div>
     </div>
 
-    <!-- Trip / Shift Log -->
     <div class="card">
       <h2 style="margin-top:0;">New Trip / Shift Log</h2>
 
@@ -183,7 +168,6 @@
           </select>
         </div>
 
-        <!-- NOTE: This is pickup task id, NOT trip task id -->
         <div class="full" style="margin-top:6px;">
           <div class="label">Pickup Task ID (only if you want to reference pickup)</div>
           <input id="taskId" placeholder="Optional: pickup_tasks.id (not required for Trip log)" />
@@ -203,7 +187,6 @@
       </div>
     </div>
 
-    <!-- Logs -->
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px;">
         <h2 style="margin:0;">Activity Logs</h2>
@@ -223,7 +206,6 @@
             <th>Actions</th>
           </tr>
         </thead>
-        <!-- ✅ IMPORTANT: keep this id EXACTLY as tripsBody so app.js can render into it -->
         <tbody id="tripsBody">
           <tr><td colspan="8" style="opacity:.8;">Loading...</td></tr>
         </tbody>
@@ -235,71 +217,6 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ✅ ONLY app.js -->
-<script type="module" src="app.js"></script>
-
-<script>
-  // Page-only wiring (keeps everything compatible with app.js)
-  window.addEventListener("DOMContentLoaded", () => {
-    // Default date
-    const vdate = document.getElementById("vdate");
-    if (vdate && !vdate.value) vdate.value = new Date().toISOString().slice(0, 10);
-
-    // Default due date today (admin manual)
-    const due = document.getElementById("manualDueDate");
-    if (due && !due.value) due.value = new Date().toISOString().slice(0, 10);
-
-    // Buttons
-    document.getElementById("goCollectionBtn")?.addEventListener("click", () => {
-      window.location.href = "collection.html";
-    });
-
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
-
-    // ===== Admin Manual Task UI wiring =====
-    window.initAdminManualTaskUI?.();
-
-    // Clear button
-    document.getElementById("btnClearManualTask")?.addEventListener("click", () => {
-      const set = (id, v="") => { const el = document.getElementById(id); if (el) el.value = v; };
-      set("manualAssignTo", "");
-      set("manualTaskType", "pickup");
-      set("manualBinId", "");
-      set("manualRoute", "");
-      set("manualVehicleId", "");   // ✅ NEW
-      set("manualPriority", "normal");
-      set("manualNotes", "");
-      const due = document.getElementById("manualDueDate");
-      if (due) due.value = new Date().toISOString().slice(0, 10);
-    });
-
-    // Create button -> createManualTask() in app.js
-    // ✅ After create, refresh Activity Logs so the new entry appears.
-    document.getElementById("btnCreateManualTask")?.addEventListener("click", async () => {
-      try {
-        if (typeof window.createManualTask === "function") {
-          await window.createManualTask();
-        }
-      } finally {
-        window.loadStaffVehicleLogs?.();
-        window.renderStaffVehicleLogs?.();
-        window.loadTrips?.();
-        window.renderTrips?.();
-      }
-    });
-
-    // ✅ After saving trip, refresh Activity Logs (non-breaking)
-    document.getElementById("saveTripBtn")?.addEventListener("click", () => {
-      setTimeout(() => {
-        window.loadStaffVehicleLogs?.();
-        window.renderStaffVehicleLogs?.();
-        window.loadTrips?.();
-        window.renderTrips?.();
-      }, 400);
-    });
-  });
-</script>
-
+<script type="module" src="./js/staffVehicle.js"></script>
 </body>
 </html>

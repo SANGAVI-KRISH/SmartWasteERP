@@ -10,7 +10,6 @@
 <body>
 <div class="container">
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
@@ -19,27 +18,20 @@
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
       <a class="nav-admin" href="users.html">👥 Users</a>
-
       <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
-
       <a class="nav-worker nav-driver nav-admin active" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
-
+      <a class="nav-admin" href="finance.html">💰 Finance</a>
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
-
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
-
-    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Waste Collection</h1>
@@ -60,13 +52,10 @@
       </div>
     </div>
 
-    <!-- Form Card -->
     <div class="card">
       <h2 style="margin-top:0;">New Collection Entry</h2>
 
       <div class="form">
-
-        <!-- Entry Mode -->
         <div class="full">
           <div class="label">Entry Mode</div>
           <select id="entryMode">
@@ -102,7 +91,6 @@
           <input type="number" id="qty" placeholder="Eg: 25" min="0" step="0.01">
         </div>
 
-        <!-- Vehicle details -->
         <div>
           <div class="label">Vehicle ID (optional)</div>
           <input type="text" id="vehicleId" placeholder="Eg: TN-37-WM-1023">
@@ -111,32 +99,24 @@
           </div>
         </div>
 
-        <!-- Bin reference -->
         <div>
           <div class="label">Bin ID (optional)</div>
           <input type="text" id="binId" placeholder="Eg: B001">
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            If DB has <b>bin_id</b> column, it will be saved (needed to remove from Bin Status after collection).
+            If DB has <b>bin_id</b> column, it will be saved.
           </div>
         </div>
 
-        <!-- Task fields wrapper (hide in Manual mode) -->
         <div class="full" id="taskFieldsWrap">
           <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
             <div>
               <div class="label">Pickup Task ID (for pickup flow)</div>
               <input type="text" id="taskId" placeholder="Auto-filled from My Tasks / Bin Status">
-              <div class="sub" style="margin-top:6px; opacity:.85;">
-                Pickup flow: links the collection record to <b>pickup_tasks.id</b>.
-              </div>
             </div>
 
             <div>
               <div class="label">Trip Staff Task ID (auto from Trip completion)</div>
               <input type="text" id="staffTaskId" placeholder="Auto-filled when you complete a Trip">
-              <div class="sub" style="margin-top:6px; opacity:.85;">
-                Trip flow: completing Trip redirects here and auto-fills this ID.
-              </div>
             </div>
           </div>
         </div>
@@ -148,7 +128,6 @@
       </div>
     </div>
 
-    <!-- Saved Records -->
     <div class="card" style="margin-top:14px;">
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap;">
         <h2 style="margin:0;">Saved Records</h2>
@@ -182,463 +161,14 @@
       </table>
 
       <div class="sub" style="margin-top:10px; opacity:.75;">
-        ✅ Same records for Admin/Worker/Driver (no user filter). Recycled pickup tasks are hidden by default.
+        ✅ Same records for Admin/Worker/Driver. Recycled pickup tasks are hidden by default.
       </div>
     </div>
-
   </main>
 </div>
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="./app.js"></script>
-
-<script type="module">
-  const $ = (id) => document.getElementById(id);
-
-  function todayISO() {
-    const d = new Date();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}-${mm}-${dd}`;
-  }
-
-  function getSB() { return window.supabase || null; }
-  function getRole() { return (localStorage.getItem("role") || "").toLowerCase(); }
-  function norm(v){ return String(v || "").trim().toUpperCase(); }
-
-  function toast(msg, ok = true) {
-    if (window.toast) return window.toast(msg);
-    const el = $("toast");
-    if (!el) return alert(msg);
-    el.textContent = msg;
-    el.style.display = "block";
-    el.style.borderColor = ok ? "" : "rgba(255,80,80,.55)";
-    el.style.background = ok ? "" : "rgba(255,80,80,.12)";
-    clearTimeout(window.__t);
-    window.__t = setTimeout(() => (el.style.display = "none"), 2200);
-  }
-
-  function pingBinsRefresh() {
-    try { localStorage.setItem("bins_refresh_ping", String(Date.now())); } catch {}
-    try { window.dispatchEvent(new Event("app:pickup_tasks_changed")); } catch {}
-  }
-
-  async function ensureAuth() {
-    window.applyRoleMenu?.();
-    const ok = await window.protectPage?.(["admin","worker","driver"]);
-    if (!ok) return false;
-    window.setActiveNav?.();
-    window.initProfileMenu?.();
-    return true;
-  }
-
-  /* ==========================================================
-     ✅ UPDATED: No silent fallback
-     Reason: bins removal needs bin_id stored in collection_records.
-     If bin_id/vehicle_id columns are missing, show error clearly.
-  ========================================================== */
-  async function safeInsertCollection(sb, payload) {
-    const { data, error } = await sb
-      .from("collection_records")
-      .insert([payload])
-      .select()
-      .maybeSingle();
-
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, data };
-  }
-
-  async function autofillFromUrl() {
-    const sb = getSB();
-    const sp = new URLSearchParams(window.location.search);
-
-    const task_id = (sp.get("task_id") || "").trim();
-    const staff_task_id = (sp.get("staff_task_id") || "").trim();
-    const areaFromUrl = (sp.get("area") || "").trim();
-    const binFromUrl = (sp.get("bin_id") || sp.get("binId") || "").trim();
-    const vehicleFromUrl = (sp.get("vehicle_id") || sp.get("vehicleId") || "").trim();
-
-    if (task_id && $("taskId")) $("taskId").value = task_id;
-    if (staff_task_id && $("staffTaskId")) $("staffTaskId").value = staff_task_id;
-
-    if (areaFromUrl && $("area") && !$("area").value) $("area").value = areaFromUrl;
-    if (binFromUrl && $("binId") && !$("binId").value) $("binId").value = binFromUrl;
-    if (vehicleFromUrl && $("vehicleId") && !$("vehicleId").value) $("vehicleId").value = vehicleFromUrl;
-
-    // Try to backfill from pickup_tasks
-    if (task_id && sb) {
-      try {
-        const { data, error } = await sb
-          .from("pickup_tasks")
-          .select("area,bin_id")
-          .eq("id", task_id)
-          .maybeSingle();
-
-        if (!error && data) {
-          if ($("area") && !$("area").value && data.area) $("area").value = data.area;
-          if ($("binId") && !$("binId").value && data.bin_id) $("binId").value = data.bin_id;
-        }
-      } catch {}
-    }
-
-    // Try to backfill from staff_tasks
-    if (staff_task_id && sb) {
-      try {
-        const { data, error } = await sb
-          .from("staff_tasks")
-          .select("route,vehicle_id")
-          .eq("id", staff_task_id)
-          .maybeSingle();
-
-        if (!error && data) {
-          if ($("area") && !$("area").value && data.route) $("area").value = data.route;
-          if ($("vehicleId") && !$("vehicleId").value && data.vehicle_id) $("vehicleId").value = data.vehicle_id;
-        }
-      } catch {}
-    }
-
-    if (task_id || staff_task_id) toast("Auto-filled from task ✅");
-
-    if ((task_id || staff_task_id) && $("entryMode")) {
-      $("entryMode").value = "task";
-      applyEntryModeUI();
-    }
-  }
-
-  function esc(s) {
-    return String(s ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  async function fetchPickupStatuses(sb, taskIds) {
-    const ids = [...new Set((taskIds || []).filter(Boolean))];
-    if (!ids.length) return new Map();
-
-    const { data, error } = await sb
-      .from("pickup_tasks")
-      .select("id,status")
-      .in("id", ids);
-
-    if (error) {
-      console.warn("fetchPickupStatuses error:", error);
-      return new Map();
-    }
-
-    const m = new Map();
-    (data || []).forEach(x => m.set(x.id, norm(x.status)));
-    return m;
-  }
-
-  async function renderCollections() {
-    const sb = getSB();
-    const body = $("collectionsBody");
-    if (!sb) {
-      body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">Supabase not found. app.js must set window.supabase</td></tr>`;
-      return;
-    }
-
-    const q = ($("searchCollections")?.value || "").trim().toLowerCase();
-    const showRecycled = !!$("showRecycledToggle")?.checked;
-
-    const { data: sess } = await sb.auth.getSession();
-    const session = sess?.session;
-    if (!session) return;
-
-    let rows = null;
-
-    if (typeof window.fetchCollectionRecordsAll === "function") {
-      const r = await window.fetchCollectionRecordsAll({ orderBy: "created_at", ascending: false, limit: 300 });
-      if (!r.ok) {
-        body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r.error)}</td></tr>`;
-        return;
-      }
-      rows = r.data || [];
-    } else {
-      // ✅ We expect these columns to exist now (bin_id, vehicle_id etc.)
-      const selectFull = "id,date,area,waste_type,quantity_kg,task_id,staff_task_id,vehicle_id,bin_id,created_at,user_id";
-      const r1 = await sb
-        .from("collection_records")
-        .select(selectFull)
-        .order("created_at", { ascending: false })
-        .limit(300);
-
-      if (r1.error) {
-        console.log("renderCollections error:", r1.error);
-        body.innerHTML = `<tr><td colspan="9" style="opacity:.85;">${esc(r1.error.message)}</td></tr>`;
-        return;
-      }
-
-      rows = r1.data || [];
-    }
-
-    const taskIds = (rows || []).map(r => r.task_id).filter(Boolean);
-    const statusMap = await fetchPickupStatuses(sb, taskIds);
-
-    const filtered = (rows || []).filter(r => {
-      if (q) {
-        const hay = `${r.date||""} ${r.area||""} ${r.waste_type||""} ${r.quantity_kg||""} ${r.task_id||""} ${r.staff_task_id||""} ${r.vehicle_id||""} ${r.bin_id||""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      const st = statusMap.get(r.task_id) || "";
-      if (!showRecycled && st === "RECYCLED") return false;
-      return true;
-    });
-
-    if (!filtered.length) {
-      body.innerHTML = `<tr><td colspan="9" style="opacity:.8;">No records found.</td></tr>`;
-      return;
-    }
-
-    const role = getRole();
-    const canDelete = (role === "admin");
-
-    body.innerHTML = filtered.map(r => {
-      const st = statusMap.get(r.task_id) || "";
-      const badge = st === "RECYCLED"
-        ? `<span style="padding:2px 8px; border-radius:999px; font-size:12px; background:rgba(0,0,0,.06);">RECYCLED</span>`
-        : (st ? `<span style="opacity:.75; font-size:12px;">${esc(st)}</span>` : `<span style="opacity:.55;">-</span>`);
-
-      return `
-        <tr>
-          <td>${esc(r.date ?? "-")}</td>
-          <td>${esc(r.area ?? "-")}</td>
-          <td>${esc(r.waste_type ?? "-")}</td>
-          <td>${esc(r.quantity_kg ?? "-")}</td>
-          <td>${esc(r.vehicle_id ?? "-")}</td>
-          <td>${esc(r.bin_id ?? "-")}</td>
-          <td style="max-width:220px; word-break:break-all;">
-            ${esc(r.task_id ?? "-")} <div style="margin-top:4px;">${badge}</div>
-          </td>
-          <td style="max-width:220px; word-break:break-all;">${esc(r.staff_task_id ?? "-")}</td>
-          <td>
-            ${
-              canDelete
-                ? `<button class="btn red" style="padding:6px 10px;" data-del="${esc(r.id)}">Delete</button>`
-                : `<span style="opacity:.65;">-</span>`
-            }
-          </td>
-        </tr>
-      `;
-    }).join("");
-
-    if (canDelete) {
-      body.querySelectorAll("[data-del]").forEach(btn => {
-        btn.addEventListener("click", () => deleteCollection(btn.getAttribute("data-del")));
-      });
-    }
-  }
-
-  async function deleteCollection(id) {
-    const sb = getSB();
-    if (!sb) return;
-
-    if (getRole() !== "admin") {
-      return toast("Only admin can delete collection records.", false);
-    }
-
-    const yes = confirm("Delete this record?");
-    if (!yes) return;
-
-    const { error } = await sb
-      .from("collection_records")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.log("delete error:", error);
-      return toast("Delete failed: " + error.message, false);
-    }
-
-    toast("Deleted ✅");
-    await renderCollections();
-    pingBinsRefresh();
-  }
-
-  async function markPickupTaskCollected(sb, task_id, quantity_kg) {
-    if (!task_id) return { ok: false, error: "no task_id" };
-
-    let u1 = await sb.from("pickup_tasks")
-      .update({ status: "COLLECTED", collected_kg: quantity_kg })
-      .eq("id", task_id)
-      .select();
-
-    if (!u1.error) return { ok: true };
-
-    const msg = (u1.error.message || "").toLowerCase();
-    if (msg.includes("column") && msg.includes("does not exist")) {
-      let u2 = await sb.from("pickup_tasks")
-        .update({ status: "COLLECTED" })
-        .eq("id", task_id)
-        .select();
-
-      if (u2.error) return { ok: false, error: u2.error.message };
-      return { ok: true };
-    }
-    return { ok: false, error: u1.error.message };
-  }
-
-  // ✅ After collected, set bin to Empty (same as your code)
-  async function emptyBinAfterCollected(sb, task_id, fallbackBinCodeFromInput) {
-    if (!task_id) return { ok: false, error: "no task_id" };
-
-    let binRef = null;
-
-    try {
-      const { data, error } = await sb
-        .from("pickup_tasks")
-        .select("bin_id")
-        .eq("id", task_id)
-        .maybeSingle();
-
-      if (!error && data) binRef = data.bin_id;
-    } catch {}
-
-    if (!binRef) binRef = (fallbackBinCodeFromInput || "").trim() || null;
-    if (!binRef) return { ok: false, error: "no binRef" };
-
-    const now = new Date().toISOString();
-
-    const updatePayloads = [
-      { status: "Empty", updated_at: now },
-      { bin_status: "Empty", updated_at: now },
-      { status: "Empty", last_updated: now },
-      { bin_status: "Empty", last_updated: now },
-    ];
-
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-      .test(String(binRef));
-
-    if (isUuid) {
-      for (const payload of updatePayloads) {
-        const r = await sb.from("bins").update(payload).eq("id", binRef).select();
-        if (!r.error) return { ok: true, via: "bins.id" };
-      }
-    }
-
-    for (const payload of updatePayloads) {
-      const r = await sb.from("bins").update(payload).eq("bin_id", binRef).select();
-      if (!r.error) return { ok: true, via: "bins.bin_id" };
-    }
-
-    return { ok: false, error: "bins update blocked or schema mismatch" };
-  }
-
-  function applyEntryModeUI() {
-    const mode = ($("entryMode")?.value || "task");
-    const wrap = $("taskFieldsWrap");
-    if (!wrap) return;
-
-    if (mode === "manual") {
-      wrap.style.display = "none";
-      if ($("taskId")) $("taskId").value = "";
-      if ($("staffTaskId")) $("staffTaskId").value = "";
-    } else {
-      wrap.style.display = "block";
-    }
-  }
-
-  async function saveCollection() {
-    const sb = getSB();
-    if (!sb) return toast("Supabase not found (app.js must set window.supabase)", false);
-
-    if (window.__savingCollection) return;
-    window.__savingCollection = true;
-
-    const btn = $("saveCollectionBtn");
-    const oldText = btn.textContent;
-    btn.textContent = "Saving...";
-    btn.disabled = true;
-
-    try {
-      const { data: sess } = await sb.auth.getSession();
-      const session = sess?.session;
-      if (!session) {
-        toast("Login required", false);
-        window.location = "index.html";
-        return;
-      }
-
-      const mode = ($("entryMode")?.value || "task");
-
-      const date = $("date")?.value || todayISO();
-      const area = ($("area")?.value || "").trim();
-      const waste_type = $("type")?.value;
-      const quantity_kg = Number($("qty")?.value);
-
-      const vehicle_id = ($("vehicleId")?.value || "").trim() || null;
-      const bin_id_input = ($("binId")?.value || "").trim() || null;
-
-      const task_id = (mode === "manual") ? null : (($("taskId")?.value || "").trim() || null);
-      const staff_task_id = (mode === "manual") ? null : (($("staffTaskId")?.value || "").trim() || null);
-
-      if (!area) { toast("Area is required.", false); return; }
-      if (!Number.isFinite(quantity_kg) || quantity_kg <= 0) { toast("Quantity must be > 0.", false); return; }
-
-      // ✅ IMPORTANT:
-      // This MUST succeed with bin_id column in DB, otherwise bins removal won't work.
-      const payload = {
-        user_id: session.user.id,
-        date,
-        area,
-        waste_type,
-        quantity_kg,
-        task_id,
-        staff_task_id,
-        vehicle_id,
-        bin_id: bin_id_input
-      };
-
-      const r = await safeInsertCollection(sb, payload);
-      if (!r.ok) {
-        toast("Save failed: " + r.error, false);
-        return;
-      }
-
-      if (task_id) {
-        await markPickupTaskCollected(sb, task_id, quantity_kg);
-        await emptyBinAfterCollected(sb, task_id, bin_id_input);
-      }
-
-      toast("Collection saved ✅");
-      if ($("qty")) $("qty").value = "";
-
-      await renderCollections();
-      pingBinsRefresh();
-
-    } finally {
-      window.__savingCollection = false;
-      btn.textContent = oldText;
-      btn.disabled = false;
-    }
-  }
-
-  window.addEventListener("DOMContentLoaded", async () => {
-    const ok = await ensureAuth();
-    if (!ok) return;
-
-    if (!$("date")?.value) $("date").value = todayISO();
-
-    $("entryMode")?.addEventListener("change", applyEntryModeUI);
-    applyEntryModeUI();
-
-    await autofillFromUrl();
-
-    $("saveCollectionBtn")?.addEventListener("click", saveCollection);
-    $("goStaffVehicleBtn")?.addEventListener("click", () => (window.location.href = "staff_vehicle.html"));
-    $("searchCollections")?.addEventListener("input", renderCollections);
-    $("showRecycledToggle")?.addEventListener("change", renderCollections);
-
-    $("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
-    $("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
-
-    await renderCollections();
-  });
-</script>
-
+<script type="module" src="./js/collection.js"></script>
 </body>
 </html>

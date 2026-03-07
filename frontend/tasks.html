@@ -7,10 +7,8 @@
   <link rel="stylesheet" href="style.css">
 
   <style>
-    /* Center cell content vertically */
     .table td, .table th { vertical-align: middle; }
 
-    /* Prevent Task ID ugly breaking */
     td.task-id {
       max-width: 360px;
       white-space: nowrap;
@@ -31,21 +29,18 @@
       vertical-align: middle;
     }
 
-    /* ✅ ACTION column aligned */
     td.task-actions{
       display:flex;
-      flex-direction: column;   /* stacked buttons like your screenshot */
-      align-items:flex-end;     /* right side */
-      justify-content:center;   /* center vertically */
+      flex-direction: column;
+      align-items:flex-end;
+      justify-content:center;
       gap:8px;
       white-space:nowrap;
       min-width: 160px;
     }
 
-    /* Buttons inside action */
     td.task-actions .btn { margin:0 !important; }
 
-    /* Copy button smaller */
     .copy-btn {
       padding: 6px 10px !important;
       border-radius: 999px;
@@ -57,43 +52,33 @@
 <body>
 <div class="container">
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
-
-      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-admin" href="finance.html">💰 Finance</a>
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
 
-    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">My Assigned Tasks</h1>
@@ -114,7 +99,6 @@
       </div>
     </div>
 
-    <!-- TASK TABLE -->
     <div class="card">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
         <h2 style="margin:0;">Tasks</h2>
@@ -152,258 +136,6 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- app.js must expose window.supabase, window.toast, window.pickupActionButton, window.updateStaffTaskStatus, window.completeTripToCollection -->
-<script type="module" src="app.js"></script>
-
-<script type="module">
-  const $ = (id) => document.getElementById(id);
-
-  function escapeHtml(s) {
-    return String(s ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  async function copyToClipboard(text) {
-    const t = String(text || "");
-    if (!t) return;
-    try {
-      await navigator.clipboard.writeText(t);
-      window.toast?.("Copied ✅");
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = t;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
-      window.toast?.("Copied ✅");
-    }
-  }
-
-  // ✅ SINGLE BUTTON TOGGLE FOR TRIP
-  window.__tripToggle = async (id) => {
-    try {
-      if (!id) return;
-
-      if (typeof window.updateStaffTaskStatus !== "function") {
-        alert("updateStaffTaskStatus not loaded. Check app.js path.");
-        return;
-      }
-
-      const tr = document.querySelector(`tr[data-trip-id="${CSS.escape(id)}"]`);
-      const currentStatus = (tr?.getAttribute("data-status") || "Assigned").trim();
-
-      if (currentStatus === "Assigned") {
-        const r = await window.updateStaffTaskStatus(id, "Started");
-        if (r && r.ok === false) return;
-        await renderMyTasksTable();
-        return;
-      }
-
-      if (currentStatus === "Started") {
-        if (typeof window.completeTripToCollection === "function") {
-          await window.completeTripToCollection(id);
-          return;
-        }
-        const r = await window.updateStaffTaskStatus(id, "Completed");
-        if (r && r.ok === false) return;
-        window.location = `collection.html?staff_task_id=${encodeURIComponent(id)}&mode=trip`;
-        return;
-      }
-
-      window.toast?.("Already completed ✅");
-    } catch (e) {
-      console.log("trip toggle error:", e);
-      window.toast?.("Error: " + (e?.message || e));
-    }
-  };
-
-  // ✅ Bin statuses for pickup tasks
-  async function getBinStatusMap(sb, binIds) {
-    const ids = [...new Set((binIds || []).filter(Boolean))];
-    if (!ids.length) return {};
-
-    const { data, error } = await sb
-      .from("bins")
-      .select("bin_id,status")
-      .in("bin_id", ids);
-
-    if (error) {
-      console.log("bins select error:", error);
-      return {};
-    }
-
-    const map = {};
-    (data || []).forEach(b => { map[b.bin_id] = b.status; });
-    return map;
-  }
-
-  // ✅ Remove "Collection" button from pickupActionButton output
-  // Keeps Mark Collected / Delivered / Received / Recycled buttons.
-  function removeCollectionButton(html) {
-    if (!html) return html;
-    const s = String(html);
-
-    // Remove the button that says "Collection" (case-insensitive)
-    // (works whether it is first button or has extra spaces)
-    return s.replace(
-      /<button\b[^>]*>\s*Collection\s*<\/button>\s*/gi,
-      ""
-    ).trim();
-  }
-
-  async function renderMyTasksTable() {
-    const tbody = $("tasksBody");
-    if (!tbody) return;
-
-    const q = ($("searchTasks")?.value || "").toLowerCase().trim();
-    const role = (localStorage.getItem("role") || "").toLowerCase();
-    const userId = localStorage.getItem("user_id");
-
-    const sb = window.supabase;
-    if (!sb) {
-      tbody.innerHTML = `<tr><td colspan="5" style="opacity:.85;">Supabase not found. app.js must set window.supabase</td></tr>`;
-      return;
-    }
-
-    // --- Pickup tasks ---
-    let pickupQuery = sb
-      .from("pickup_tasks")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (role === "worker" || role === "driver") {
-      pickupQuery = pickupQuery.or(`assigned_worker_id.eq.${userId},assigned_driver_id.eq.${userId}`);
-    }
-
-    const { data: pickup, error: pErr } = await pickupQuery;
-    if (pErr) {
-      tbody.innerHTML = `<tr><td colspan="5" style="opacity:.85;">${escapeHtml(pErr.message)}</td></tr>`;
-      return;
-    }
-
-    const binStatusMap = await getBinStatusMap(sb, (pickup || []).map(t => t.bin_id));
-
-    // --- Trip tasks ---
-    let staffQuery = sb
-      .from("staff_tasks")
-      .select("id,task_type,date,vehicle_id,route,shift,status,created_at,assigned_to")
-      .order("created_at", { ascending: false });
-
-    if (role !== "admin") staffQuery = staffQuery.eq("assigned_to", userId);
-
-    const { data: staffTasks, error: sErr } = await staffQuery;
-    if (sErr) console.log("staff_tasks fetch error:", sErr);
-
-    const pickupRows = (pickup || []).map(t => {
-      const bStatus = binStatusMap[t.bin_id] || "-";
-      const taskLabel = `Bin: ${t.bin_id || "-"}`;
-      const details = `Area: ${t.area || "-"} | Bin Status: ${bStatus}`;
-      const status = t.status || "-";
-      const taskId = t.id || "";
-
-      let action = "-";
-      if (typeof window.pickupActionButton === "function") {
-        action = window.pickupActionButton(t, role);
-        action = removeCollectionButton(action); // ✅ remove only the Collection button
-        if (!action) action = "-";
-      }
-
-      return { kind: "PICKUP", taskLabel, details, taskId, status, action };
-    });
-
-    const tripRows = (staffTasks || [])
-      .filter(t => (t.task_type || "").toUpperCase() === "TRIP")
-      .map(t => {
-        const taskLabel = `Trip: ${t.vehicle_id || "-"}`;
-        const details = `${t.route || "-"} | ${t.shift || "-"} | ${t.date || "-"}`;
-        const status = (t.status || "Assigned").trim();
-        const taskId = t.id || "";
-
-        let action = "-";
-        if (role !== "admin") {
-          if (status === "Completed") {
-            action = "✅ Done";
-          } else {
-            const btnLabel =
-              status === "Assigned" ? "Work Started" :
-              status === "Started"  ? "Work Completed" :
-              "Update";
-            action = `<button class="btn" onclick="__tripToggle('${taskId}')">${btnLabel}</button>`;
-          }
-        }
-
-        return { kind: "TRIP", taskLabel, details, taskId, status, action };
-      });
-
-    let rows = [...tripRows, ...pickupRows];
-
-    if (q) {
-      rows = rows.filter(r => {
-        const blob = `${r.taskLabel} ${r.details} ${r.taskId} ${r.status}`.toLowerCase();
-        return blob.includes(q);
-      });
-    }
-
-    if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="5" style="opacity:.8;">No tasks found.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = rows.map(r => `
-      <tr ${r.kind === "TRIP" ? `data-trip-id="${escapeHtml(r.taskId)}" data-status="${escapeHtml(r.status)}"` : ""}>
-        <td>${escapeHtml(r.taskLabel)}</td>
-        <td>${escapeHtml(r.details)}</td>
-
-        <!-- ✅ Task ID aligned + ellipsis -->
-        <td class="task-id">
-          <div class="id-wrap">
-            <span class="id-text" title="${escapeHtml(r.taskId)}">${escapeHtml(r.taskId)}</span>
-            ${r.taskId ? `<button class="btn copy-btn" data-copy="${escapeHtml(r.taskId)}">Copy</button>` : ""}
-          </div>
-        </td>
-
-        <td>${escapeHtml(r.status)}</td>
-
-        <!-- ✅ Action column aligned -->
-        <td class="task-actions">${r.action || "-"}</td>
-      </tr>
-    `).join("");
-
-    // Copy binding
-    tbody.querySelectorAll("[data-copy]").forEach(btn => {
-      btn.addEventListener("click", () => copyToClipboard(btn.getAttribute("data-copy")));
-    });
-  }
-
-  window.addEventListener("DOMContentLoaded", async () => {
-    if (typeof window.applyRoleMenu === "function") window.applyRoleMenu();
-
-    const ok = (typeof window.protectPage === "function")
-      ? await window.protectPage(["admin","worker","driver","recycling_manager"])
-      : true;
-    if (!ok) return;
-
-    if (typeof window.setActiveNav === "function") window.setActiveNav();
-    if (typeof window.initProfileMenu === "function") window.initProfileMenu();
-
-    await renderMyTasksTable();
-
-    $("searchTasks")?.addEventListener("input", () => renderMyTasksTable());
-
-    $("refreshTasksBtn")?.addEventListener("click", async () => {
-      await renderMyTasksTable();
-      window.toast?.("Refreshed ✅");
-    });
-
-    $("logoutBtnTop")?.addEventListener("click", () => window.logout?.());
-    $("logoutBtnSidebar")?.addEventListener("click", () => window.logout?.());
-  });
-</script>
-
+<script type="module" src="./js/tasks.js"></script>
 </body>
 </html>

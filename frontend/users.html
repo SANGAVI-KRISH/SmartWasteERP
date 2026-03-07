@@ -10,43 +10,33 @@
 <body>
 <div class="container">
 
-  <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="brand">Smart Waste ERP</div>
 
     <div class="nav">
-      <!-- All roles -->
       <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
       <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-      <!-- Admin only -->
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <!-- Worker + Driver + Recycling Manager + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
 
-      <!-- Worker + Driver + Admin -->
       <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
       <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
       <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <!-- Recycling Manager + Admin -->
       <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
-
-      <!-- Worker + Driver + Recycling Manager + Admin -->
+      <a class="nav-admin" href="finance.html">💰 Finance</a>
       <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <!-- Complaints (optional) -->
       <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
 
-    <!-- TOPBAR -->
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Users</h1>
@@ -54,7 +44,6 @@
       </div>
 
       <div class="topbar-right" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-
         <input
           id="searchUsers"
           placeholder="Search email/role/area..."
@@ -74,7 +63,6 @@
       </div>
     </div>
 
-    <!-- USERS TABLE -->
     <div class="card">
       <h2 style="margin-top:0;">All Users</h2>
 
@@ -91,7 +79,7 @@
       </table>
 
       <p class="sub" style="margin-bottom:0;">
-        Note: Passwords are not stored here (Supabase Auth handles it securely).
+        Note: Passwords are not shown here.
       </p>
     </div>
 
@@ -100,35 +88,6 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- app.js -->
-<script type="module" src="app.js"></script>
-
-<!-- page init -->
-<script type="module">
-  window.addEventListener("DOMContentLoaded", async () => {
-    // 1) Hide menu immediately
-    window.applyRoleMenu?.();
-
-    // ✅ Admin only
-    const ok = await window.protectPage?.(["admin"]);
-    if (!ok) return;
-
-    window.setActiveNav?.();
-    window.initProfileMenu?.();
-
-    // Load users
-    await window.loadUsers?.();
-
-    // Search filter
-    document.getElementById("searchUsers")?.addEventListener("input", () => {
-      window.renderUsers?.();
-    });
-
-    // Logout buttons
-    document.getElementById("logoutBtnTop")?.addEventListener("click", () => window.logout());
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", () => window.logout());
-  });
-</script>
-
+<script type="module" src="./js/users.js"></script>
 </body>
 </html>
