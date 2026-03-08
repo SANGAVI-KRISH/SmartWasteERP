@@ -61,7 +61,7 @@
       <p class="sub" style="margin-top:-6px; opacity:.85;">
         Create a pickup/inspection/maintenance task and assign directly to a worker/driver.
         <br />
-        <b>Requirement:</b> After creating, it must appear in <b>Activity Logs</b>.
+        <b>Requirement:</b> After creating, it must appear in <b>Activity Logs</b> and <b>My Tasks</b>.
       </p>
 
       <div class="form">
@@ -82,11 +82,6 @@
         </div>
 
         <div>
-          <div class="label">Bin ID (optional)</div>
-          <input id="manualBinId" placeholder="Paste bins.id (optional)" />
-        </div>
-
-        <div>
           <div class="label">Area / Route</div>
           <input id="manualRoute" placeholder="Eg: Peelamedu Route-2" />
         </div>
@@ -94,6 +89,15 @@
         <div>
           <div class="label">Vehicle ID (optional)</div>
           <input id="manualVehicleId" placeholder="Eg: TN-37-WM-1023" />
+        </div>
+
+        <div>
+          <div class="label">Shift</div>
+          <select id="manualShift">
+            <option value="Morning">Morning</option>
+            <option value="Afternoon">Afternoon</option>
+            <option value="Night">Night</option>
+          </select>
         </div>
 
         <div>
@@ -141,8 +145,10 @@
         </div>
 
         <div>
-          <div class="label">Staff Name (must match Users full_name or email)</div>
-          <input id="staffName" placeholder="Eg: Ravi Kumar" />
+          <div class="label">Staff Name</div>
+          <select id="staffName">
+            <option value="">Loading staff...</option>
+          </select>
         </div>
 
         <div>
@@ -172,7 +178,7 @@
           <div class="label">Pickup Task ID (only if you want to reference pickup)</div>
           <input id="taskId" placeholder="Optional: pickup_tasks.id (not required for Trip log)" />
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            Trip logs should be saved to <b>staff_tasks</b>. Pickup flow is handled in <b>My Tasks</b> &amp; <b>Collection</b>.
+            Trip logs are saved to <b>staff_tasks</b>. Pickup flow is handled in <b>My Tasks</b> &amp; <b>Collection</b>.
           </div>
         </div>
 
@@ -203,11 +209,10 @@
             <th>Shift</th>
             <th>Status</th>
             <th>Task ID</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="tripsBody">
-          <tr><td colspan="8" style="opacity:.8;">Loading...</td></tr>
+          <tr><td colspan="7" style="opacity:.8;">Loading...</td></tr>
         </tbody>
       </table>
     </div>

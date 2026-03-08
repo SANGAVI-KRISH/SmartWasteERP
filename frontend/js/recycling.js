@@ -1,6 +1,8 @@
-import { apiGet, apiPost } from "./apiClient.js";
+import { apiGet, apiPost, apiDelete } from "./apiClient.js";
 
-function $(id) { return document.getElementById(id); }
+function $(id) {
+  return document.getElementById(id);
+}
 
 function todayISO() {
   const d = new Date();
@@ -9,13 +11,32 @@ function todayISO() {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+function normalizeDate(input) {
+  const v = String(input || "").trim();
+
+  if (!v) return todayISO();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+
+  if (/^\d{2}-\d{2}-\d{4}$/.test(v)) {
+    const [dd, mm, yyyy] = v.split("-");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return todayISO();
+}
+
 function toast(msg) {
   const t = $("toast");
   if (!t) return alert(msg);
+
   t.textContent = msg;
   t.style.display = "block";
+
   clearTimeout(window.__toastTimer);
-  window.__toastTimer = setTimeout(() => (t.style.display = "none"), 1700);
+  window.__toastTimer = setTimeout(() => {
+    t.style.display = "none";
+  }, 1700);
 }
 
 function num(v) {
@@ -23,106 +44,149 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-const HIDE_KEY = "recycled_hidden_keys";
-
-function getHiddenSet() {
-  try {
-    const arr = JSON.parse(localStorage.getItem(HIDE_KEY) || "[]");
-    return new Set(Array.isArray(arr) ? arr : []);
-  } catch {
-    return new Set();
-  }
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-function addHiddenKey(val) {
-  const s = getHiddenSet();
-  s.add(String(val));
-  localStorage.setItem(HIDE_KEY, JSON.stringify(Array.from(s)));
+function normalizeRecord(r) {
+  return {
+    id: r?.id ?? "",
+    date: r?.date ?? r?.rdate ?? "",
+    type: r?.type ?? r?.waste_type ?? "",
+    input: r?.input ?? r?.input_kg ?? 0,
+    recycled: r?.recycled ?? r?.recycled_kg ?? 0,
+    landfill: r?.landfill ?? r?.landfill_kg ?? 0
+  };
 }
 
-function removeOptionByValue(val) {
+function resetRecycleForm() {
   const sel = $("collectedTaskSelect");
-  if (!sel || !val) return;
+  const inputKg = $("input");
+  const recycledKg = $("recycled");
+  const landfillKg = $("landfill");
+  const typeSel = $("rtype");
+  const rdate = $("rdate");
 
-  const target = String(val);
-  for (let i = sel.options.length - 1; i >= 1; i--) {
-    if (sel.options[i].value === target) {
-      sel.remove(i);
-      break;
-    }
-  }
-
-  sel.value = "";
-  $("input").value = "";
-  $("recycled").value = "";
-  $("landfill").value = "";
+  if (sel) sel.value = "";
+  if (inputKg) inputKg.value = "";
+  if (recycledKg) recycledKg.value = "";
+  if (landfillKg) landfillKg.value = "";
+  if (typeSel) typeSel.value = "Wet";
+  if (rdate) rdate.value = todayISO();
 }
 
-async function loadCollectedTasksForRecycling() {
-  const sel = $("collectedTaskSelect");
+function setCollectedHint(message = "") {
   const hint = $("collectedHint");
-  if (!sel) return;
+  if (!hint) return;
 
-  sel.innerHTML = `<option value="">-- Select COLLECTED task / Manual Collection --</option>`;
-  if (hint) hint.style.display = "none";
+  hint.textContent = message;
+  hint.style.display = message ? "block" : "none";
+}
 
-  const hidden = getHiddenSet();
-  const res = await apiGet("/api/recycling/available-sources");
+function setRecyclingHint(message = "") {
+  const hint = $("recyclingHint");
+  if (!hint) return;
 
-  if (!res.ok) {
-    if (hint) {
-      hint.textContent = res.message || "Failed to load collected tasks/manual collections.";
-      hint.style.display = "block";
-    }
+  hint.textContent = message;
+  hint.style.display = message ? "block" : "none";
+}
+
+function applySelectedSourceAutofill() {
+  const sel = $("collectedTaskSelect");
+  const inputKg = $("input");
+  const typeSel = $("rtype");
+
+  if (!sel || !inputKg || !typeSel) return;
+
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) {
+    inputKg.value = "";
     return;
   }
 
-  const rows = res.data || [];
+  const kg = parseFloat(opt.dataset.kg ?? "");
+  inputKg.value = !Number.isNaN(kg) && kg >= 0 ? String(kg) : "";
 
-  for (const item of rows) {
-    if (hidden.has(String(item.value))) continue;
-
-    const opt = document.createElement("option");
-    opt.value = item.value;
-    opt.textContent = item.label;
-    opt.dataset.kg = String(item.kg ?? 0);
-    opt.dataset.kind = item.kind || "";
-    sel.appendChild(opt);
+  const wasteType = String(opt.dataset.type || "").trim();
+  if (wasteType) {
+    typeSel.value = wasteType;
   }
+}
 
-  const total = sel.options.length - 1;
-  if (total === 0 && hint) {
-    hint.textContent = "No COLLECTED tasks / Manual Collections found.";
-    hint.style.display = "block";
+async function loadCollectedTasksForRecycling(keepSelection = true) {
+  const sel = $("collectedTaskSelect");
+  if (!sel) return;
+
+  const prevValue = keepSelection ? sel.value : "";
+
+  sel.innerHTML = `<option value="">-- Select Collection Record --</option>`;
+  setCollectedHint("");
+
+  try {
+    const res = await apiGet("/api/recycling/available-sources");
+
+    if (!res.ok) {
+      setCollectedHint(res.message || "Failed to load collection records.");
+      return;
+    }
+
+    const rows = Array.isArray(res.data) ? res.data : [];
+
+    for (const item of rows) {
+      const opt = document.createElement("option");
+      opt.value = String(item.value || "");
+      opt.textContent = item.label || item.value || "";
+      opt.dataset.kg = String(item.kg ?? 0);
+      opt.dataset.kind = String(item.kind || "");
+      opt.dataset.type = String(item.waste_type || "");
+      sel.appendChild(opt);
+    }
+
+    if (prevValue) {
+      const exists = Array.from(sel.options).some((o) => o.value === prevValue);
+      if (exists) sel.value = prevValue;
+    }
+
+    applySelectedSourceAutofill();
+
+    if (sel.options.length <= 1) {
+      setCollectedHint("No collection records found.");
+    }
+  } catch (err) {
+    console.error("loadCollectedTasksForRecycling error:", err);
+    setCollectedHint("Failed to load collection records.");
   }
 }
 
 function bindCollectedTaskAutofill() {
   const sel = $("collectedTaskSelect");
-  const input = $("input");
-  if (!sel || !input) return;
+  if (!sel) return;
 
   sel.addEventListener("change", () => {
-    const opt = sel.options[sel.selectedIndex];
-    const kg = parseFloat(opt?.dataset?.kg ?? "");
-    input.value = (!Number.isNaN(kg) && kg >= 0) ? String(kg) : "";
+    applySelectedSourceAutofill();
   });
 }
 
-async function saveRecycleAlways(selectedValue) {
-  const date = $("rdate")?.value || todayISO();
-  const type = $("rtype")?.value || "";
+async function saveRecycleAlways() {
+  const date = normalizeDate($("rdate")?.value || todayISO());
+  const type = String($("rtype")?.value || "").trim();
   const inputKg = num($("input")?.value);
   const recycledKg = num($("recycled")?.value);
   const landfillKg = num($("landfill")?.value);
+  const raw = String($("collectedTaskSelect")?.value || "").trim();
 
-  const raw = selectedValue || $("collectedTaskSelect")?.value || "";
-
-  if (!raw) throw new Error("Please select a COLLECTED task / Manual Collection.");
+  if (!raw) throw new Error("Please select a collection record.");
   if (!type) throw new Error("Please select waste type.");
   if (!(inputKg > 0)) throw new Error("Input (kg) must be greater than 0.");
-  if (recycledKg < 0 || landfillKg < 0) throw new Error("Kg values cannot be negative.");
-  if ((recycledKg + landfillKg) > inputKg) {
+  if (recycledKg < 0 || landfillKg < 0) {
+    throw new Error("Kg values cannot be negative.");
+  }
+  if (recycledKg + landfillKg > inputKg) {
     throw new Error("Recycled + Landfill must not exceed Input.");
   }
 
@@ -138,49 +202,111 @@ async function saveRecycleAlways(selectedValue) {
   if (!res.ok) {
     throw new Error(res.message || "Failed to save recycling record");
   }
+
+  return normalizeRecord(res.data || {});
+}
+
+async function deleteRecyclingRecord(id) {
+  const res = await apiDelete(`/api/recycling/${id}`);
+
+  if (!res.ok) {
+    throw new Error(res.message || "Failed to delete recycling record");
+  }
+
+  return res.data;
+}
+
+function bindDeleteButtons() {
+  document.querySelectorAll(".recycle-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      if (!id) {
+        toast("Record id missing");
+        return;
+      }
+
+      const ok = window.confirm("Delete this recycling record?");
+      if (!ok) return;
+
+      try {
+        btn.disabled = true;
+        btn.textContent = "Deleting...";
+
+        await deleteRecyclingRecord(id);
+
+        toast("✅ Recycling record deleted!");
+        await loadCollectedTasksForRecycling(false);
+        await renderRecyclingAlways();
+      } catch (err) {
+        console.error("deleteRecyclingRecord error:", err);
+        toast(err?.message || "Delete failed");
+        btn.disabled = false;
+        btn.textContent = "Delete";
+      }
+    });
+  });
 }
 
 async function renderRecyclingAlways() {
   const body = $("recyclingBody");
-  const hint = $("recyclingHint");
   if (!body) return;
 
-  if (hint) {
-    hint.style.display = "none";
-    hint.textContent = "";
-  }
+  body.innerHTML = "";
+  setRecyclingHint("");
 
-  const q = ($("searchRecycling")?.value || "").toLowerCase().trim();
-  const onlyMine = !!$("onlyMineToggle")?.checked;
+  try {
+    const q = ($("searchRecycling")?.value || "").toLowerCase().trim();
 
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (onlyMine) params.set("onlyMine", "true");
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
 
-  const res = await apiGet(`/api/recycling?${params.toString()}`);
+    const qs = params.toString();
+    const url = qs ? `/api/recycling?${qs}` : "/api/recycling";
 
-  if (!res.ok) {
-    body.innerHTML = "";
-    if (hint) {
-      hint.textContent = res.message || "Could not read recycling records.";
-      hint.style.display = "block";
+    const res = await apiGet(url);
+
+    if (!res.ok) {
+      setRecyclingHint(res.message || "Could not read recycling records.");
+      return;
     }
-    return;
+
+    const rows = Array.isArray(res.data)
+      ? res.data.map(normalizeRecord)
+      : [];
+
+    if (!rows.length) {
+      setRecyclingHint("No recycling records found.");
+      return;
+    }
+
+    body.innerHTML = rows
+      .map(
+        (r) => `
+          <tr>
+            <td>${esc(r.date)}</td>
+            <td>${esc(r.type)}</td>
+            <td>${esc(r.input)}</td>
+            <td>${esc(r.recycled)}</td>
+            <td>${esc(r.landfill)}</td>
+            <td>
+              <button
+                type="button"
+                class="btn red recycle-delete-btn"
+                data-id="${esc(r.id)}"
+              >
+                Delete
+              </button>
+            </td>
+          </tr>
+        `
+      )
+      .join("");
+
+    bindDeleteButtons();
+  } catch (err) {
+    console.error("renderRecyclingAlways error:", err);
+    setRecyclingHint("Could not read recycling records.");
   }
-
-  const rows = res.data || [];
-
-  body.innerHTML = rows.length
-    ? rows.map(r => `
-      <tr>
-        <td>${r.date ?? ""}</td>
-        <td>${r.type ?? ""}</td>
-        <td>${r.input ?? ""}</td>
-        <td>${r.recycled ?? ""}</td>
-        <td>${r.landfill ?? ""}</td>
-      </tr>
-    `).join("")
-    : "";
 }
 
 function safeLogout() {
@@ -189,20 +315,33 @@ function safeLogout() {
     localStorage.removeItem("role");
     localStorage.removeItem("user");
   } catch {}
+
   window.location.href = "index.html";
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  if ($("rdate") && !$("rdate").value) $("rdate").value = todayISO();
+  if ($("rdate") && !$("rdate").value) {
+    $("rdate").value = todayISO();
+  }
 
-  await loadCollectedTasksForRecycling();
+  const onlyMineToggle = $("onlyMineToggle");
+  if (onlyMineToggle) {
+    onlyMineToggle.checked = false;
+    onlyMineToggle.disabled = true;
+
+    if (onlyMineToggle.parentElement) {
+      onlyMineToggle.parentElement.style.opacity = "0.5";
+      onlyMineToggle.parentElement.title = "Show only my records is disabled";
+    }
+  }
+
   bindCollectedTaskAutofill();
+
+  await loadCollectedTasksForRecycling(false);
   await renderRecyclingAlways();
 
   $("saveRecycleBtn")?.addEventListener("click", async () => {
     const btn = $("saveRecycleBtn");
-    const sel = $("collectedTaskSelect");
-    const selectedValue = sel?.value || "";
 
     try {
       if (btn) {
@@ -210,15 +349,15 @@ window.addEventListener("DOMContentLoaded", async () => {
         btn.textContent = "Saving...";
       }
 
-      await saveRecycleAlways(selectedValue);
-
-      addHiddenKey(selectedValue);
-      removeOptionByValue(selectedValue);
+      await saveRecycleAlways();
 
       toast("✅ Recycling entry saved!");
+      resetRecycleForm();
+
+      await loadCollectedTasksForRecycling(false);
       await renderRecyclingAlways();
     } catch (e) {
-      console.error(e);
+      console.error("saveRecycleAlways error:", e);
       toast(e?.message || "Save error");
     } finally {
       if (btn) {
@@ -228,12 +367,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  $("searchRecycling")?.addEventListener("input", renderRecyclingAlways);
-  $("onlyMineToggle")?.addEventListener("change", renderRecyclingAlways);
+  $("searchRecycling")?.addEventListener("input", async () => {
+    await renderRecyclingAlways();
+  });
 
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === "visible") {
-      await loadCollectedTasksForRecycling();
+      await loadCollectedTasksForRecycling(true);
+      await renderRecyclingAlways();
     }
   });
 

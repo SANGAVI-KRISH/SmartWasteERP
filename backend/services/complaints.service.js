@@ -127,3 +127,56 @@ exports.updateComplaintStatus = async (id, status, user) => {
 
   return data;
 };
+
+exports.deleteComplaint = async (id, user) => {
+  if (!user?.id) {
+    const err = new Error("Unauthorized");
+    err.status = 401;
+    throw err;
+  }
+
+  const role = await getUserRole(user.id);
+
+  if (role !== "admin") {
+    const err = new Error("Only admin can delete complaints");
+    err.status = 403;
+    throw err;
+  }
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("complaints")
+    .select("id,status")
+    .eq("id", id)
+    .single();
+
+  if (fetchError) {
+    const err = new Error(fetchError.message);
+    err.status = 500;
+    throw err;
+  }
+
+  if (!existing) {
+    const err = new Error("Complaint not found");
+    err.status = 404;
+    throw err;
+  }
+
+  if (String(existing.status || "").toLowerCase() !== "resolved") {
+    const err = new Error("Only resolved complaints can be deleted");
+    err.status = 400;
+    throw err;
+  }
+
+  const { error } = await supabase
+    .from("complaints")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    const err = new Error(error.message);
+    err.status = 500;
+    throw err;
+  }
+
+  return true;
+};

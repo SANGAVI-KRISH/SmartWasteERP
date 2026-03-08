@@ -30,12 +30,12 @@ async function getBinStatusMap(binIds) {
   return map;
 }
 
+/* ---------------- GET MY TASKS ---------------- */
+
 exports.getMyTasks = async (user, query) => {
   const role = roleOf(user);
   const userId = user?.id || user?.userId;
   const q = String(query?.q || "").trim();
-
-  console.log("getMyTasks user:", { userId, role });
 
   let pickupQuery = supabase
     .from("pickup_tasks")
@@ -60,7 +60,7 @@ exports.getMyTasks = async (user, query) => {
 
   let staffQuery = supabase
     .from("staff_tasks")
-    .select("id,task_type,date,vehicle_id,route,shift,status,created_at,completed_at,assigned_to")
+    .select("id,task_type,date,vdate,vehicle_id,route,area,shift,status,created_at,completed_at,assigned_to,staff_name")
     .order("created_at", { ascending: false });
 
   if (role !== "admin") {
@@ -73,9 +73,6 @@ exports.getMyTasks = async (user, query) => {
     throw new Error(sErr.message);
   }
 
-  console.log("pickup raw:", pickup);
-  console.log("staff raw:", staffTasks);
-
   const binStatusMap = await getBinStatusMap((pickup || []).map((t) => t.bin_id));
 
   const pickupRows = (pickup || [])
@@ -83,11 +80,8 @@ exports.getMyTasks = async (user, query) => {
       const taskStatus = String(t.status || "").trim().toUpperCase();
       const binStatus = String(binStatusMap[t.bin_id] || "").trim().toUpperCase();
 
-      // hide if task already completed
       if (taskStatus === "COLLECTED") return false;
       if (taskStatus === "RECYCLED") return false;
-
-      // hide if bin is already empty (work effectively completed / stale task)
       if (binStatus === "EMPTY") return false;
 
       return true;
@@ -104,27 +98,51 @@ exports.getMyTasks = async (user, query) => {
       };
     });
 
-  const tripRows = (staffTasks || [])
-    .filter((t) => String(t.task_type || "").trim().toUpperCase() === "TRIP")
+  const staffRows = (staffTasks || [])
     .filter((t) => String(t.status || "").trim().toUpperCase() !== "COMPLETED")
-    .map((t) => ({
-      kind: "TRIP",
-      taskLabel: `Trip: ${t.vehicle_id || "-"}`,
-      details: `${t.route || "-"} | ${t.shift || "-"} | ${t.date || "-"}`,
-      taskId: t.id || "",
-      status: String(t.status || "Assigned").trim(),
-      raw: t,
-    }));
+    .map((t) => {
+      const type = String(t.task_type || "TASK").trim();
+      const upperType = type.toUpperCase();
 
-  let rows = [...tripRows, ...pickupRows];
+      let taskLabel = "Task";
+      let details = `${t.route || t.area || "-"} | ${t.shift || "Morning"} | ${t.vdate || t.date || "-"}`;
+
+      if (upperType === "TRIP") {
+        taskLabel = `Trip: ${t.vehicle_id || "-"}`;
+        details = `${t.route || "-"} | ${t.shift || "-"} | ${t.vdate || t.date || "-"}`;
+      } else if (upperType === "PICKUP") {
+        taskLabel = "Pickup Task";
+        details = `${t.route || t.area || "-"} | ${t.vehicle_id || "Not Assigned"} | ${t.vdate || t.date || "-"}`;
+      } else if (upperType === "INSPECTION") {
+        taskLabel = "Inspection Task";
+        details = `${t.route || t.area || "-"} | ${t.vehicle_id || "Not Assigned"} | ${t.vdate || t.date || "-"}`;
+      } else if (upperType === "MAINTENANCE") {
+        taskLabel = "Maintenance Task";
+        details = `${t.route || t.area || "-"} | ${t.vehicle_id || "Not Assigned"} | ${t.vdate || t.date || "-"}`;
+      } else {
+        taskLabel = type;
+      }
+
+      return {
+        kind: upperType === "TRIP" ? "TRIP" : "STAFF_TASK",
+        taskLabel,
+        details,
+        taskId: t.id || "",
+        status: String(t.status || "Assigned").trim(),
+        raw: t,
+      };
+    });
+
+  let rows = [...staffRows, ...pickupRows];
 
   if (q) {
     rows = rows.filter((r) => matchesQuery(r, q));
   }
 
-  console.log("rows returned:", rows);
   return rows;
 };
+
+/* ---------------- UPDATE PICKUP TASK STATUS ---------------- */
 
 exports.updatePickupTaskStatus = async (id, status, user) => {
   const normalizedStatus = String(status || "").trim().toUpperCase();
@@ -185,6 +203,8 @@ exports.updatePickupTaskStatus = async (id, status, user) => {
   return data;
 };
 
+/* ---------------- UPDATE STAFF/TRIP TASK STATUS ---------------- */
+
 exports.updateTripTaskStatus = async (id, status, user) => {
   const normalizedStatus = String(status || "").trim().toUpperCase();
   const allowed = ["ASSIGNED", "STARTED", "COMPLETED"];
@@ -217,4 +237,81 @@ exports.updateTripTaskStatus = async (id, status, user) => {
 
   if (error) throw new Error(error.message);
   return data;
+};
+
+/* ---------------- COMPLETE STAFF TASK + SAVE COLLECTION ---------------- */
+
+exports.completeStaffTaskWithCollection = async (id, body, user) => {
+  const userId = user?.id || user?.userId;
+  if (!id) throw new Error("Task ID is required");
+  if (!userId) throw new Error("User not found");
+
+  const quantityKg = Number(body?.quantity_kg);
+  if (!Number.isFinite(quantityKg) || quantityKg <= 0) {
+    throw new Error("Quantity must be greater than 0");
+  }
+
+  const wasteType = String(body?.waste_type || "Dry").trim();
+  const allowedWasteTypes = ["Wet", "Dry", "Plastic"];
+  if (!allowedWasteTypes.includes(wasteType)) {
+    throw new Error("Invalid waste type");
+  }
+
+  const { data: taskRow, error: taskErr } = await supabase
+    .from("staff_tasks")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (taskErr) throw new Error(taskErr.message);
+  if (!taskRow) throw new Error("Task not found");
+
+  const currentStatus = String(taskRow.status || "").trim().toUpperCase();
+  if (currentStatus === "COMPLETED") {
+    throw new Error("Task already completed");
+  }
+
+  const area = String(body?.area || taskRow.area || taskRow.route || "").trim();
+  const date = String(body?.date || taskRow.vdate || taskRow.date || "").trim();
+  const vehicleId = String(body?.vehicle_id || taskRow.vehicle_id || "").trim();
+
+  if (!area) throw new Error("Area is required");
+  if (!date) throw new Error("Date is required");
+
+  const collectionPayload = {
+    user_id: userId,
+    date,
+    area,
+    waste_type: wasteType,
+    quantity_kg: quantityKg,
+    vehicle_id: vehicleId || null,
+    staff_task_id: id
+  };
+
+  const { data: collectionRow, error: collectionErr } = await supabase
+    .from("collection_records")
+    .insert([collectionPayload])
+    .select()
+    .maybeSingle();
+
+  if (collectionErr) throw new Error(collectionErr.message);
+
+  const completedAt = new Date().toISOString();
+
+  const { data: updatedTask, error: updateErr } = await supabase
+    .from("staff_tasks")
+    .update({
+      status: "Completed",
+      completed_at: completedAt
+    })
+    .eq("id", id)
+    .select()
+    .maybeSingle();
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  return {
+    collection: collectionRow,
+    task: updatedTask
+  };
 };

@@ -9,34 +9,42 @@ function isNeedCollection(bin) {
 }
 
 function getAreaText(bin) {
-  return (
+  return String(
     bin.area ??
     bin.location ??
     bin.address ??
     bin.zone ??
     ""
+  ).trim();
+}
+
+function toNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isValidLatLng(lat, lng) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180 &&
+    !(lat === 0 && lng === 0)
   );
 }
 
-function getLatLngStrict(bin) {
-  const lat = Number(bin.latitude ?? bin.lat);
-  const lng = Number(bin.longitude ?? bin.lng);
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-  if (lat === 0 && lng === 0) return null;
-
-  return { lat, lng };
-}
-
 async function geocodePlace(place) {
+  if (!place) return null;
+
   const url =
     "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
     encodeURIComponent(place);
 
   const res = await fetch(url, {
     headers: {
-      "Accept": "application/json",
+      Accept: "application/json",
       "User-Agent": "SmartWasteERP/1.0"
     }
   });
@@ -44,52 +52,12 @@ async function geocodePlace(place) {
   const data = await res.json().catch(() => []);
   if (!Array.isArray(data) || !data.length) return null;
 
-  const lat = Number(data[0].lat);
-  const lng = Number(data[0].lon);
+  const lat = toNum(data[0].lat);
+  const lng = toNum(data[0].lon);
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!isValidLatLng(lat, lng)) return null;
+
   return { lat, lng };
-}
-
-async function ensureBinHasCoordinates(bin) {
-  const existing = getLatLngStrict(bin);
-  if (existing) {
-    return {
-      ...bin,
-      latitude: existing.lat,
-      longitude: existing.lng
-    };
-  }
-
-  const area = getAreaText(bin);
-  if (!area) return null;
-
-  const query = area.toLowerCase().includes("india")
-    ? area
-    : `${area}, Tamil Nadu, India`;
-
-  const coords = await geocodePlace(query);
-  if (!coords) return null;
-
-  const idCol = bin.bin_id != null ? "bin_id" : "id";
-  const idVal = bin.bin_id != null ? bin.bin_id : bin.id;
-
-  if (idVal != null) {
-    const { error } = await supabase
-      .from("bins")
-      .update({ latitude: coords.lat, longitude: coords.lng })
-      .eq(idCol, idVal);
-
-    if (error) {
-      console.warn("Could not update coords:", error.message || error);
-    }
-  }
-
-  return {
-    ...bin,
-    latitude: coords.lat,
-    longitude: coords.lng
-  };
 }
 
 exports.getFullBinsForMap = async () => {
@@ -101,11 +69,24 @@ exports.getFullBinsForMap = async () => {
   if (error) throw new Error(error.message);
 
   const bins = (data || []).filter(isNeedCollection);
-
   const result = [];
+
   for (const bin of bins) {
-    const updated = await ensureBinHasCoordinates(bin);
-    if (updated) result.push(updated);
+    const area = getAreaText(bin);
+    if (!area) continue;
+
+    const query = area.toLowerCase().includes("india")
+      ? area
+      : `${area}, Tamil Nadu, India`;
+
+    const coords = await geocodePlace(query);
+    if (!coords) continue;
+
+    result.push({
+      ...bin,
+      latitude: coords.lat,
+      longitude: coords.lng
+    });
   }
 
   return result;

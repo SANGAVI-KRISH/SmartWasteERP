@@ -12,6 +12,7 @@ function toast(msg, ok = true) {
   t.style.display = "block";
   t.style.borderColor = ok ? "" : "rgba(255,80,80,.55)";
   t.style.background = ok ? "" : "rgba(255,80,80,.12)";
+  t.style.color = ok ? "" : "#ffd5d5";
 
   clearTimeout(window.__toastTimer);
   window.__toastTimer = setTimeout(() => {
@@ -19,9 +20,11 @@ function toast(msg, ok = true) {
   }, 1800);
 }
 
-function setMsg(msg = "") {
+function setMsg(msg = "", ok = false) {
   const el = $("msg");
-  if (el) el.textContent = msg;
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = ok ? "#7CFC98" : "#ff8a8a";
 }
 
 function setVal(id, value) {
@@ -38,13 +41,13 @@ function safeLogout() {
     localStorage.removeItem("smartwaste_session");
     localStorage.removeItem("cloudcrafter_session");
   } catch {}
+
   window.location.href = "index.html";
 }
 
 function applyRoleVisibility(role) {
   role = String(role || "").toLowerCase();
 
-  // hide everything first
   document.querySelectorAll(
     ".nav-admin, .nav-worker, .nav-driver, .nav-recycling"
   ).forEach((el) => {
@@ -77,7 +80,6 @@ function applyRoleVisibility(role) {
     });
   }
 
-  // always visible
   document.querySelectorAll(".nav-all").forEach((el) => {
     el.style.display = "";
   });
@@ -95,6 +97,20 @@ function formatPaidAt(v) {
   return d.toLocaleString();
 }
 
+function formatMonth(v) {
+  if (!v) return "-";
+
+  const s = String(v).trim();
+
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    const [y, m] = s.split("-");
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    return d.toLocaleString(undefined, { month: "long", year: "numeric" });
+  }
+
+  return s;
+}
+
 function setSalaryFallback(statusText = "Not Available") {
   setVal("salaryMonth", "-");
   setVal("salaryKg", "0");
@@ -105,29 +121,34 @@ function setSalaryFallback(statusText = "Not Available") {
 }
 
 async function loadProfile() {
-  const res = await apiGet("/api/profile/me");
+  try {
+    const res = await apiGet("/api/profile/me");
 
-  if (!res.ok) {
-    toast(res.message || "Failed to load profile", false);
+    if (!res.ok) {
+      toast(res.message || "Failed to load profile", false);
+      return null;
+    }
+
+    const p = res.data || {};
+
+    setVal("profileName", p.full_name || p.name || "");
+    setVal("profileEmail", p.email || "");
+    setVal("profileRole", p.role || "");
+    setVal("profileArea", p.area || "");
+
+    applyRoleVisibility(p.role || "");
+    return p;
+  } catch (err) {
+    console.error("loadProfile error:", err);
+    toast("Failed to load profile", false);
     return null;
   }
-
-  const p = res.data || {};
-
-  setVal("profileName", p.name || "");
-  setVal("profileEmail", p.email || "");
-  setVal("profileRole", p.role || "");
-  setVal("profileArea", p.area || "");
-
-  applyRoleVisibility(p.role || "");
-  return p;
 }
 
 async function loadMySalary(profile) {
   try {
     const role = String(profile?.role || "").toLowerCase();
 
-    // Salary section mainly for worker/driver. Still safe to show fallback for others.
     if (!["worker", "driver"].includes(role)) {
       setSalaryFallback("Not Applicable");
       return;
@@ -142,7 +163,7 @@ async function loadMySalary(profile) {
 
     const row = res.data || {};
 
-    setVal("salaryMonth", row.month || "-");
+    setVal("salaryMonth", formatMonth(row.month || "-"));
     setVal("salaryKg", row.total_kg ?? 0);
     setVal("salaryRate", formatMoney(row.rate ?? 0));
     setVal("salaryAmount", formatMoney(row.salary ?? 0));
@@ -155,12 +176,18 @@ async function loadMySalary(profile) {
 }
 
 async function changePassword() {
-  const np = $("newPassword")?.value || "";
-  const cp = $("confirmNewPassword")?.value || "";
+  const np = $("newPassword")?.value?.trim() || "";
+  const cp = $("confirmNewPassword")?.value?.trim() || "";
 
   if (!np || np.length < 6) {
     setMsg("Password must be at least 6 characters");
     toast("Password must be at least 6 characters", false);
+    return;
+  }
+
+  if (!cp) {
+    setMsg("Please confirm the password");
+    toast("Please confirm the password", false);
     return;
   }
 
@@ -194,8 +221,8 @@ async function changePassword() {
     setVal("newPassword", "");
     setVal("confirmNewPassword", "");
 
-    setMsg("");
-    toast("Password updated ✅");
+    setMsg("Password updated successfully", true);
+    toast("Password updated ✅", true);
   } catch (err) {
     console.error("changePassword error:", err);
     setMsg("Failed to update password");

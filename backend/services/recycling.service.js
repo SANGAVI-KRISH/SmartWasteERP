@@ -1,14 +1,41 @@
 const supabase = require("../config/supabase");
 
+/* ---------------------------
+   HELPERS
+---------------------------- */
+
+function normalizeDate(input) {
+  const v = String(input || "").trim();
+
+  if (!v) return new Date().toISOString().slice(0, 10);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+
+  if (/^\d{2}-\d{2}-\d{4}$/.test(v)) {
+    const [dd, mm, yyyy] = v.split("-");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
 function toNum(x) {
   if (x === null || x === undefined) return null;
   if (typeof x === "number") return Number.isFinite(x) ? x : null;
+
   const s = String(x).trim();
   if (!s) return null;
+
   const m = s.match(/-?\d+(\.\d+)?/);
   if (!m) return null;
+
   const n = parseFloat(m[0]);
   return Number.isFinite(n) ? n : null;
+}
+
+function toInt(x) {
+  const n = Number(x);
+  return Number.isInteger(n) ? n : null;
 }
 
 function readKg(obj) {
@@ -28,262 +55,243 @@ function readKg(obj) {
     obj?.quantity,
     obj?.qty
   ];
+
   for (const v of candidates) {
     const n = toNum(v);
     if (n !== null) return n;
   }
+
   return 0;
 }
 
-async function getRecycledSets() {
-  const recycledPickupIds = new Set();
-  const recycledManualIds = new Set();
+function normalizeText(v) {
+  return String(v || "").trim();
+}
 
-  const selectCandidates = [
-    "id,pickup_task_id,task_id,collection_record_id,created_at",
-    "*"
-  ];
+/* ---------------------------
+   FIND ALREADY RECYCLED
+---------------------------- */
 
-  for (const s of selectCandidates) {
-    const rr = await supabase
-      .from("recycling_records")
-      .select(s)
-      .order("created_at", { ascending: false });
+async function getRecycledCollectionIds() {
+  const recycledIds = new Set();
 
-    if (!rr.error) {
-      (rr.data || []).forEach(r => {
-        const pid = r.pickup_task_id ?? r.task_id;
-        if (pid) recycledPickupIds.add(String(pid));
-        if (r.collection_record_id) recycledManualIds.add(String(r.collection_record_id));
-      });
-      break;
-    }
+  const { data, error } = await supabase
+    .from("recycling_records")
+    .select("collection_record_id");
+
+  if (!error && data) {
+    data.forEach(r => {
+      if (r.collection_record_id !== null) {
+        recycledIds.add(String(r.collection_record_id));
+      }
+    });
   }
 
-  return { recycledPickupIds, recycledManualIds };
+  return recycledIds;
 }
+
+/* ---------------------------
+   AVAILABLE COLLECTION SOURCES
+---------------------------- */
 
 exports.getAvailableSources = async () => {
-  const { recycledPickupIds, recycledManualIds } = await getRecycledSets();
-  const result = [];
 
-  const pickupRes = await supabase
-    .from("pickup_tasks")
+  const recycledIds = await getRecycledCollectionIds();
+
+  const { data, error } = await supabase
+    .from("collection_records")
     .select("*")
-    .eq("status", "COLLECTED")
     .order("created_at", { ascending: false });
 
-  const pickupRows = pickupRes.error ? [] : (pickupRes.data || []);
+  if (error) throw new Error(error.message);
 
-  let collectionData = [];
-  const manualSelects = [
-    "id,created_at,date,bin_id,area,quantity_kg,collected_kg,input_kg,weight_kg,collection,collection_kg,kg,waste_kg,waste_qty,total_kg,total_weight,weight,quantity,qty,status,collection_status,is_manual,manual,task_id,pickup_task_id,collection_visible,visible,recycled",
-    "*"
-  ];
+  const rows = (data || []).filter(r => {
 
-  for (const selStr of manualSelects) {
-    const res = await supabase
-      .from("collection_records")
-      .select(selStr)
-      .order("created_at", { ascending: false });
+    const id = String(r.id || "");
 
-    if (!res.error) {
-      collectionData = res.data || [];
-      break;
-    }
-  }
+    if (recycledIds.has(id)) return false;
 
-  const manualRows = (collectionData || []).filter(r => {
-    const manualFlag = r.is_manual === true || r.manual === true;
-    const noTask = r.task_id == null && r.pickup_task_id == null;
-    const st = String(r.status ?? r.collection_status ?? "").toUpperCase().trim();
-    const notRecycledByStatus = st ? st !== "RECYCLED" : true;
-    const visibleOk =
-      (r.collection_visible === undefined || r.collection_visible === null || r.collection_visible === true) &&
-      (r.visible === undefined || r.visible === null || r.visible === true);
-    const notRecycledFlag = (r.recycled === undefined || r.recycled === null) ? true : (r.recycled !== true);
-    const notAlreadyInRecycling = !recycledManualIds.has(String(r.id));
+    const kg = readKg(r);
+    if (!(kg > 0)) return false;
 
-    return (manualFlag || noTask) && notRecycledByStatus && notRecycledFlag && visibleOk && notAlreadyInRecycling;
+    return true;
   });
 
-  for (const t of pickupRows) {
-    const taskId = t.id || t.task_id || "";
-    if (!taskId) continue;
-    if (recycledPickupIds.has(String(taskId))) continue;
+  return rows.map(r => {
 
-    const binId = t.bin_id || "";
-    const area = t.area || t.location || t.zone || "";
-    const kg = readKg(t);
-
-    result.push({
-      value: `pickup:${taskId}`,
-      kind: "pickup",
-      kg,
-      label: [
-        "(COLLECTED)",
-        `Task: ${taskId}`,
-        binId ? `Bin: ${binId}` : null,
-        area ? `Area: ${area}` : null,
-        `Kg: ${kg}`
-      ].filter(Boolean).join(" | ")
-    });
-  }
-
-  for (const r of manualRows) {
-    const recId = r.id || "";
-    if (!recId) continue;
-    if (recycledManualIds.has(String(recId))) continue;
-
-    const binId = r.bin_id || r.bin || "";
-    const area = r.area || r.location || r.zone || "";
     const kg = readKg(r);
-    const date = r.date || (r.created_at || "").slice(0, 10) || "";
 
-    result.push({
-      value: `manual:${recId}`,
-      kind: "manual",
+    return {
+      value: `collection:${r.id}`,
       kg,
+      waste_type: normalizeText(r.waste_type),
       label: [
-        "(MANUAL)",
-        `Collection: ${recId}`,
-        date ? `Date: ${date}` : null,
-        binId ? `Bin: ${binId}` : null,
-        area ? `Area: ${area}` : null,
+        `Date: ${r.date}`,
+        `Area: ${r.area}`,
+        `Type: ${r.waste_type}`,
+        r.vehicle_id ? `Vehicle: ${r.vehicle_id}` : null,
         `Kg: ${kg}`
       ].filter(Boolean).join(" | ")
-    });
-  }
+    };
 
-  return result;
+  });
 };
 
-async function tryInsertRecycling(payloads) {
-  let lastErr = null;
-  for (const p of payloads) {
-    const res = await supabase.from("recycling_records").insert([p]).select();
-    if (!res.error) return res.data?.[0] || null;
-    lastErr = res.error;
-  }
-  throw new Error(lastErr?.message || "Insert failed.");
+/* ---------------------------
+   INSERT RECYCLING
+---------------------------- */
+
+async function insertRecycling(payload) {
+
+  const { data, error } = await supabase
+    .from("recycling_records")
+    .insert([payload])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  return data;
 }
 
-exports.createRecyclingRecord = async (body, user) => {
-  const date = body.date;
-  const type = body.waste_type;
-  const inputKg = Number(body.input_kg);
-  const recycledKg = Number(body.recycled_kg);
-  const landfillKg = Number(body.landfill_kg);
-  const raw = body.source_value || "";
+/* ---------------------------
+   MARK COLLECTION RECYCLED
+---------------------------- */
 
-  if (!raw) throw new Error("Please select a COLLECTED task / Manual Collection.");
-  if (!type) throw new Error("Please select waste type.");
-  if (!(inputKg > 0)) throw new Error("Input (kg) must be greater than 0.");
-  if (recycledKg < 0 || landfillKg < 0) throw new Error("Kg values cannot be negative.");
-  if ((recycledKg + landfillKg) > inputKg) {
-    throw new Error("Recycled + Landfill must not exceed Input.");
+async function markCollectionRecycled(collectionId) {
+
+  await supabase
+    .from("collection_records")
+    .update({
+      status: "RECYCLED",
+      recycled: true
+    })
+    .eq("id", collectionId);
+
+}
+
+/* ---------------------------
+   CREATE RECYCLING RECORD
+---------------------------- */
+
+exports.createRecyclingRecord = async (body) => {
+
+  const date = normalizeDate(body?.date);
+
+  const recycledKg = Number(body?.recycled_kg);
+  const landfillKg = Number(body?.landfill_kg);
+
+  const raw = body?.source_value;
+
+  if (!raw) throw new Error("Please select collection record.");
+
+  const [kind, rawId] = raw.split(":");
+  const collectionId = toInt(rawId);
+
+  if (kind !== "collection") {
+    throw new Error("Invalid source.");
   }
 
-  const [kind, id] = String(raw).split(":");
-  if (!kind || !id) throw new Error("Invalid dropdown value.");
+  const { data: collectionRow, error } = await supabase
+    .from("collection_records")
+    .select("*")
+    .eq("id", collectionId)
+    .single();
 
-  const payloads = [
-    {
-      rdate: date,
-      waste_type: type,
-      input: inputKg,
-      recycled: recycledKg,
-      landfill: landfillKg,
-      pickup_task_id: kind === "pickup" ? id : null,
-      task_id: kind === "pickup" ? id : null,
-      collection_record_id: kind === "manual" ? id : null,
-      user_id: user?.id || null
-    },
-    {
-      date,
-      type,
-      input: inputKg,
-      recycled: recycledKg,
-      landfill: landfillKg,
-      pickup_task_id: kind === "pickup" ? id : null,
-      task_id: kind === "pickup" ? id : null,
-      collection_record_id: kind === "manual" ? id : null,
-      user_id: user?.id || null
-    },
-    {
-      rdate: date,
-      waste_type: type,
-      input_kg: inputKg,
-      recycled_kg: recycledKg,
-      landfill_kg: landfillKg,
-      pickup_task_id: kind === "pickup" ? id : null,
-      task_id: kind === "pickup" ? id : null,
-      collection_record_id: kind === "manual" ? id : null,
-      user_id: user?.id || null
-    },
-    {
-      rdate: date,
-      waste_type: type,
-      input: inputKg,
-      recycled: recycledKg,
-      landfill: landfillKg,
-      user_id: user?.id || null
-    }
-  ];
+  if (error) throw new Error(error.message);
 
-  const inserted = await tryInsertRecycling(payloads);
+  const inputKg = readKg(collectionRow);
 
-  if (kind === "pickup") {
-    await supabase.from("pickup_tasks").update({ status: "RECYCLED" }).eq("id", id);
-  } else {
-    await supabase.from("collection_records").update({ status: "RECYCLED" }).eq("id", id);
+  if (recycledKg + landfillKg > inputKg) {
+    throw new Error("Recycled + Landfill exceeds input.");
   }
 
-  return inserted;
+  const payload = {
+    rdate: date,
+    waste_type: collectionRow.waste_type,
+    input: inputKg,
+    recycled: recycledKg,
+    landfill: landfillKg,
+    collection_record_id: collectionId
+  };
+
+  const inserted = await insertRecycling(payload);
+
+  await markCollectionRecycled(collectionId);
+
+  return {
+    id: inserted.id,
+    date: inserted.rdate,
+    type: inserted.waste_type,
+    input: inserted.input,
+    recycled: inserted.recycled,
+    landfill: inserted.landfill
+  };
 };
 
-exports.getRecyclingRecords = async (query, user) => {
-  const q = String(query.q || "").toLowerCase().trim();
-  const onlyMine = String(query.onlyMine || "").toLowerCase() === "true";
+/* ---------------------------
+   GET RECYCLING RECORDS
+---------------------------- */
 
-  const selects = [
-    "id,rdate,waste_type,input,recycled,landfill,created_at,user_id",
-    "id,date,type,input,recycled,landfill,created_at,user_id",
-    "id,rdate,waste_type,input_kg,recycled_kg,landfill_kg,created_at,user_id",
-    "*"
-  ];
+exports.getRecyclingRecords = async (query) => {
 
-  let data = null;
-  for (const selStr of selects) {
-    const res = await supabase
-      .from("recycling_records")
-      .select(selStr)
-      .order("created_at", { ascending: false });
+  const q = String(query?.q || "").toLowerCase();
 
-    if (!res.error) {
-      data = res.data || [];
-      break;
-    }
-  }
+  const { data, error } = await supabase
+    .from("recycling_records")
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  if (!data) throw new Error("Could not read recycling records.");
+  if (error) throw new Error(error.message);
 
-  let rows = data.map(r => ({
-    date: r.rdate ?? r.date ?? "",
-    type: r.waste_type ?? r.type ?? "",
-    input: r.input ?? r.input_kg ?? "",
-    recycled: r.recycled ?? r.recycled_kg ?? "",
-    landfill: r.landfill ?? r.landfill_kg ?? "",
-    user_id: r.user_id ?? null
+  let rows = (data || []).map(r => ({
+    id: r.id,
+    date: r.rdate,
+    type: r.waste_type,
+    input: r.input,
+    recycled: r.recycled,
+    landfill: r.landfill
   }));
 
-  if (onlyMine && user?.id) {
-    rows = rows.filter(r => String(r.user_id || "") === String(user.id));
-  }
-
   if (q) {
-    rows = rows.filter(r => (`${r.date} ${r.type}`).toLowerCase().includes(q));
+    rows = rows.filter(r =>
+      `${r.date} ${r.type}`.toLowerCase().includes(q)
+    );
   }
 
   return rows;
+};
+
+/* ---------------------------
+   DELETE RECYCLING
+---------------------------- */
+
+exports.deleteRecyclingRecord = async (id) => {
+
+  const { data, error } = await supabase
+    .from("recycling_records")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  await supabase
+    .from("recycling_records")
+    .delete()
+    .eq("id", id);
+
+  if (data.collection_record_id) {
+
+    await supabase
+      .from("collection_records")
+      .update({
+        status: "COLLECTED",
+        recycled: false
+      })
+      .eq("id", data.collection_record_id);
+
+  }
+
+  return { ok: true };
 };

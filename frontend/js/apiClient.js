@@ -7,6 +7,25 @@ function getToken() {
   return localStorage.getItem("token");
 }
 
+function clearStoredSession() {
+  try {
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+    localStorage.removeItem("session");
+    localStorage.removeItem("smartwaste_session");
+    localStorage.removeItem("cloudcrafter_session");
+  } catch {}
+}
+
+function redirectToLogin() {
+  const path = window.location.pathname.toLowerCase();
+  if (!path.endsWith("index.html") && !path.endsWith("/")) {
+    setTimeout(() => {
+      window.location.href = "index.html";
+    }, 100);
+  }
+}
+
 function getAuthHeaders(extraHeaders = {}) {
   const token = getToken();
 
@@ -32,24 +51,14 @@ async function parseResponse(res) {
       data?.error ||
       `Request failed with status ${res.status}`;
 
-    // auto logout / redirect on auth failure
-    if (res.status === 401 || res.status === 403) {
-      try {
-        localStorage.removeItem("token");
-        localStorage.removeItem("role");
-        localStorage.removeItem("session");
-        localStorage.removeItem("smartwaste_session");
-        localStorage.removeItem("cloudcrafter_session");
-      } catch {}
-
-      const path = window.location.pathname.toLowerCase();
-      if (!path.endsWith("index.html") && !path.endsWith("/")) {
-        setTimeout(() => {
-          window.location.href = "index.html";
-        }, 100);
-      }
+    // ✅ Logout only for real authentication failure
+    if (res.status === 401) {
+      clearStoredSession();
+      //redirectToLogin();
     }
 
+    // ✅ Do NOT logout on 403
+    // 403 means user is logged in but not permitted for this action
     return {
       ok: false,
       status: res.status,
@@ -58,7 +67,6 @@ async function parseResponse(res) {
     };
   }
 
-  // keep backend response as-is if it already follows { ok: ... }
   if (data && typeof data === "object" && "ok" in data) {
     return data;
   }
@@ -122,7 +130,6 @@ export async function apiDelete(url) {
   });
 }
 
-// optional helper for multipart/form-data uploads
 export async function apiPostForm(url, formData) {
   const token = getToken();
 
@@ -135,7 +142,6 @@ export async function apiPostForm(url, formData) {
   });
 }
 
-// optional helper if you want to change base URL later from one place
 export function getApiBase() {
   return API_BASE;
 }

@@ -1,9 +1,10 @@
 // backend/server.js
 
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const dotenv = require("dotenv");
 const { createClient } = require("@supabase/supabase-js");
 
 const dashboardRoutes = require("./routes/dashboard.routes.js");
@@ -21,9 +22,35 @@ const complaintsRoutes = require("./routes/complaints.routes.js");
 const financeRoutes = require("./routes/finance.routes.js");
 const salaryRoutes = require("./routes/salary.routes.js");
 
-dotenv.config();
-
 const app = express();
+
+/* -------------------------
+   ENV
+-------------------------- */
+const PORT = process.env.PORT || 5000;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET is missing in .env");
+}
+
+if (!SUPABASE_URL || !ANON_KEY || !SERVICE_KEY) {
+  console.error(
+    "❌ Missing env vars. Need SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY"
+  );
+}
+
+/* -------------------------
+   SUPABASE CLIENTS
+-------------------------- */
+const supabaseAdmin =
+  SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY) : null;
+
+const supabaseAuth =
+  SUPABASE_URL && ANON_KEY ? createClient(SUPABASE_URL, ANON_KEY) : null;
 
 /* -------------------------
    CORS
@@ -34,55 +61,39 @@ const ALLOWED_ORIGINS = [
   "http://127.0.0.1:5500",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://localhost:52984",
+  "http://127.0.0.1:52984"
 ];
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // allow requests with no origin (Postman, curl, mobile apps, same-server health checks)
     if (!origin) return cb(null, true);
 
-    const isLocalhost =
-      /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin);
+    const isLocalhost = /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin);
 
     if (ALLOWED_ORIGINS.includes(origin) || isLocalhost) {
       return cb(null, true);
     }
 
     console.warn("CORS blocked origin:", origin);
-    return cb(null, false);
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 };
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-app.use(express.json());
-
 /* -------------------------
-   ENV + SUPABASE CLIENTS
+   BODY PARSING
 -------------------------- */
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ANON_KEY = process.env.SUPABASE_ANON_KEY;
-const JWT_SECRET = process.env.JWT_SECRET || "smartwaste-secret";
-
-if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
-  console.error(
-    "❌ Missing env vars. Need SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY"
-  );
-}
-
-const supabaseAdmin =
-  SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY) : null;
-
-const supabaseAuth =
-  SUPABASE_URL && ANON_KEY ? createClient(SUPABASE_URL, ANON_KEY) : null;
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
 
 /* -------------------------
-   Helpers
+   HELPERS
 -------------------------- */
 const ALLOWED_ROLES = ["admin", "worker", "driver", "recycling_manager"];
 
@@ -93,7 +104,8 @@ function normalizeRole(role) {
 function requireSupabase(req, res, next) {
   if (!supabaseAdmin || !supabaseAuth) {
     return res.status(500).json({
-      error: "Backend misconfigured (missing Supabase env vars). Check environment variables.",
+      ok: false,
+      message: "Backend misconfigured. Check Supabase environment variables."
     });
   }
   next();
@@ -101,22 +113,44 @@ function requireSupabase(req, res, next) {
 
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
 
   if (!token) {
-    return res.status(401).json({ error: "No token" });
+    return res.status(401).json({
+      ok: false,
+      message: "Missing authorization token"
+    });
   }
 
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    if (!decoded?.id) {
+      return res.status(401).json({
+        ok: false,
+        message: "Invalid token payload"
+      });
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email || null,
+      role: String(decoded.role || "").toLowerCase(),
+      name: decoded.name || null,
+      area: decoded.area || null
+    };
+
     next();
   } catch (e) {
-    return res.status(401).json({ error: "Invalid token" });
+    return res.status(401).json({
+      ok: false,
+      message: "Invalid or expired token"
+    });
   }
 }
 
 /* -------------------------
-   Health / Basic Routes
+   HEALTH / BASIC ROUTES
 -------------------------- */
 app.get("/", (req, res) => {
   res.send("Smart Waste ERP Backend Running 🚀");
@@ -126,7 +160,7 @@ app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
     message: "Backend is healthy",
-    time: new Date().toISOString(),
+    time: new Date().toISOString()
   });
 });
 
@@ -142,16 +176,17 @@ app.get("/api/debug-auth", requireSupabase, async (req, res) => {
       supabaseUrlSet: !!SUPABASE_URL,
       anonKeySet: !!ANON_KEY,
       serviceKeySet: !!SERVICE_KEY,
+      jwtSecretSet: !!JWT_SECRET,
       dbQueryOk: !error,
-      dbError: error?.message || null,
+      dbError: error?.message || null
     });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message });
+    return res.status(500).json({ ok: false, message: e.message });
   }
 });
 
 /* =========================================================
-   Profile Creation
+   PROFILE CREATION
 ========================================================= */
 app.post("/api/create-profile", requireSupabase, async (req, res) => {
   try {
@@ -163,12 +198,13 @@ app.post("/api/create-profile", requireSupabase, async (req, res) => {
     full_name = String(full_name || "Not set").trim();
 
     if (!id || !email || !role || !area) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({ ok: false, message: "Missing fields" });
     }
 
     if (!ALLOWED_ROLES.includes(role)) {
       return res.status(400).json({
-        error: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}`,
+        ok: false,
+        message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}`
       });
     }
 
@@ -177,7 +213,7 @@ app.post("/api/create-profile", requireSupabase, async (req, res) => {
       .upsert([{ id, email, role, area, full_name }], { onConflict: "id" });
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ ok: false, message: error.message });
     }
 
     return res.json({
@@ -185,15 +221,15 @@ app.post("/api/create-profile", requireSupabase, async (req, res) => {
       message: "Profile created ✅",
       role,
       area,
-      full_name,
+      full_name
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ ok: false, message: e.message });
   }
 });
 
 /* -------------------------
-   Legacy Signup / Login
+   LEGACY SIGNUP / LOGIN
 -------------------------- */
 app.post("/api/signup", requireSupabase, async (req, res) => {
   try {
@@ -205,12 +241,13 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
     full_name = String(full_name || "Not set").trim();
 
     if (!email || !password || !role || !area) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({ ok: false, message: "Missing fields" });
     }
 
     if (!ALLOWED_ROLES.includes(role)) {
       return res.status(400).json({
-        error: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}`,
+        ok: false,
+        message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}`
       });
     }
 
@@ -221,14 +258,14 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
       user_metadata: {
         full_name,
         role,
-        area,
-      },
+        area
+      }
     });
 
     if (error || !data?.user) {
       return res.status(400).json({
-        error: "Signup failed",
-        supabase_error: error?.message || "No user returned",
+        ok: false,
+        message: error?.message || "Signup failed"
       });
     }
 
@@ -236,15 +273,12 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
 
     const { error: perr } = await supabaseAdmin
       .from("profiles")
-      .upsert(
-        [{ id: userId, email, role, area, full_name }],
-        { onConflict: "id" }
-      );
+      .upsert([{ id: userId, email, role, area, full_name }], { onConflict: "id" });
 
     if (perr) {
       return res.status(400).json({
-        error: "Profile upsert failed",
-        supabase_error: perr.message,
+        ok: false,
+        message: perr.message
       });
     }
 
@@ -252,10 +286,10 @@ app.post("/api/signup", requireSupabase, async (req, res) => {
       ok: true,
       message: "User created ✅",
       user: { id: userId, email },
-      profile: { role, area, full_name },
+      profile: { role, area, full_name }
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ ok: false, message: e.message });
   }
 });
 
@@ -265,26 +299,20 @@ app.post("/api/login", requireSupabase, async (req, res) => {
     email = String(email || "").trim().toLowerCase();
 
     if (!email || !password) {
-      return res.status(400).json({ error: "Missing email/password" });
+      return res.status(400).json({ ok: false, message: "Missing email/password" });
     }
 
     const { data, error } = await supabaseAuth.auth.signInWithPassword({
       email,
-      password,
+      password
     });
 
     if (error || !data?.user) {
       return res.status(401).json({
-        error: "Login failed",
-        supabase_error: error?.message || "No user returned",
+        ok: false,
+        message: error?.message || "Login failed"
       });
     }
-
-    const token = jwt.sign(
-      { id: data.user.id, email: data.user.email },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
 
     const { data: profile, error: perr } = await supabaseAdmin
       .from("profiles")
@@ -294,34 +322,58 @@ app.post("/api/login", requireSupabase, async (req, res) => {
 
     if (perr) {
       return res.status(400).json({
-        error: "Profile fetch failed",
-        supabase_error: perr.message,
+        ok: false,
+        message: perr.message
       });
     }
 
     if (!profile) {
       return res.status(404).json({
-        error: "Profile not found for this user.",
-        hint: "Your /api/create-profile call may have failed earlier. Signup again.",
+        ok: false,
+        message: "Profile not found for this user"
       });
     }
 
-    return res.json({
-      ok: true,
-      token,
-      user: {
+    const token = jwt.sign(
+      {
         id: data.user.id,
         email: data.user.email,
+        role: String(profile.role || "").toLowerCase(),
+        name: profile.full_name || null,
+        area: profile.area || null
       },
-      profile,
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    return res.json({
+      ok: true,
+      data: {
+        token,
+        role: String(profile.role || "").toLowerCase(),
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          role: String(profile.role || "").toLowerCase(),
+          name: profile.full_name || null,
+          area: profile.area || null
+        },
+        profile
+      }
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ ok: false, message: e.message });
   }
 });
 
 app.get("/api/me", authMiddleware, (req, res) => {
-  res.json({ id: req.user.id, email: req.user.email });
+  return res.json({
+    ok: true,
+    data: {
+      user: req.user,
+      role: req.user.role || null
+    }
+  });
 });
 
 app.get("/api/profile-basic", authMiddleware, requireSupabase, async (req, res) => {
@@ -332,17 +384,22 @@ app.get("/api/profile-basic", authMiddleware, requireSupabase, async (req, res) 
       .eq("id", req.user.id)
       .maybeSingle();
 
-    if (error) return res.status(400).json({ error: error.message });
-    if (!data) return res.status(404).json({ error: "Profile not found" });
+    if (error) {
+      return res.status(400).json({ ok: false, message: error.message });
+    }
 
-    return res.json(data);
+    if (!data) {
+      return res.status(404).json({ ok: false, message: "Profile not found" });
+    }
+
+    return res.json({ ok: true, data });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ ok: false, message: e.message });
   }
 });
 
 /* -------------------------
-   Modular Routes
+   MODULAR ROUTES
 -------------------------- */
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
@@ -363,30 +420,36 @@ app.use("/api/salary", salaryRoutes);
    404 JSON fallback
 -------------------------- */
 app.use((req, res) => {
-  res.status(404).json({ error: "Route not found", path: req.originalUrl });
-});
-
-/* -------------------------
-   Error handler
--------------------------- */
-app.use((err, req, res, next) => {
-  console.error("❌ Server error:", err.message);
-
-  if (err.message && err.message.includes("CORS")) {
-    return res.status(403).json({
-      error: err.message,
-    });
-  }
-
-  res.status(500).json({
-    error: err.message || "Internal server error",
+  res.status(404).json({
+    ok: false,
+    message: "Route not found",
+    path: req.originalUrl
   });
 });
 
 /* -------------------------
-   Start Server
+   ERROR HANDLER
 -------------------------- */
-const PORT = process.env.PORT || 5000;
+app.use((err, req, res, next) => {
+  console.error("❌ Server error:", err);
+
+  if (err.message && err.message.includes("CORS")) {
+    return res.status(403).json({
+      ok: false,
+      message: err.message
+    });
+  }
+
+  return res.status(500).json({
+    ok: false,
+    message: err.message || "Internal server error"
+  });
+});
+
+/* -------------------------
+   START SERVER
+-------------------------- */
 app.listen(PORT, () => {
-  console.log("✅ Backend running on", PORT);
+  console.log(`✅ Backend running on ${PORT}`);
+  console.log(`✅ JWT secret loaded: ${Boolean(JWT_SECRET)}`);
 });

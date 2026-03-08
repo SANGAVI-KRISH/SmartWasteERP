@@ -17,30 +17,85 @@ function setChecking(show) {
   }
 }
 
-function saveSession(data) {
-  if (!data) return;
+function clearSession() {
+  try {
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+    localStorage.removeItem("user");
+  } catch {}
+}
+
+function extractSessionPayload(res) {
+  const root = res && typeof res === "object" ? res : {};
+  const data = root.data && typeof root.data === "object" ? root.data : {};
+
+  const token =
+    data.token ||
+    root.token ||
+    data.accessToken ||
+    root.accessToken ||
+    data.access_token ||
+    root.access_token ||
+    null;
+
+  const user =
+    data.user ||
+    root.user ||
+    null;
+
+  const role =
+    data.role ||
+    root.role ||
+    user?.role ||
+    null;
+
+  return { token, role, user };
+}
+
+function saveSession(payload) {
+  const { token, role, user } = extractSessionPayload(payload);
+
+  if (!token) return false;
 
   try {
-    if (data.token) localStorage.setItem("token", data.token);
-    if (data.role) localStorage.setItem("role", data.role);
-    if (data.user) localStorage.setItem("user", JSON.stringify(data.user));
+    localStorage.setItem("token", token);
+
+    if (role) {
+      localStorage.setItem("role", String(role).toLowerCase());
+    }
+
+    if (user) {
+      localStorage.setItem("user", JSON.stringify(user));
+    }
   } catch {}
+
+  return true;
 }
 
 async function checkExistingSession() {
   const token = localStorage.getItem("token");
-  const role = localStorage.getItem("role");
 
-  if (!token || !role) return false;
+  if (!token) return false;
 
   const res = await apiGet("/api/auth/me");
+
   if (!res.ok) {
-    try {
-      localStorage.removeItem("token");
-      localStorage.removeItem("role");
-      localStorage.removeItem("user");
-    } catch {}
+    clearSession();
     return false;
+  }
+
+  const payload = extractSessionPayload(res);
+
+  if (payload.role && !localStorage.getItem("role")) {
+    try {
+      localStorage.setItem("role", String(payload.role).toLowerCase());
+    } catch {}
+  }
+
+  if (payload.user) {
+    try {
+      localStorage.setItem("user", JSON.stringify(payload.user));
+    } catch {}
   }
 
   window.location.replace("dashboard.html");
@@ -63,6 +118,7 @@ async function signIn() {
   }
 
   setMessage("");
+
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Logging in...";
@@ -76,8 +132,14 @@ async function signIn() {
       return;
     }
 
-    const payload = res.data || res;
-    saveSession(payload);
+    const saved = saveSession(res);
+
+    if (!saved) {
+      console.error("Login response did not contain token/role in expected shape:", res);
+      setMessage("Login succeeded, but session token was not returned properly.");
+      clearSession();
+      return;
+    }
 
     window.location.replace("dashboard.html");
   } catch (err) {
@@ -96,7 +158,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   try {
     const redirected = await checkExistingSession();
     if (redirected) return;
-  } catch {}
+  } catch {
+    clearSession();
+  }
 
   setChecking(false);
 

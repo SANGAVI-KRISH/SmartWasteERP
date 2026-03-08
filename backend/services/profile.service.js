@@ -1,6 +1,6 @@
 const supabase = require("../config/supabase");
 
-exports.getMyProfile = async (user) => {
+async function getMyProfile(user) {
   if (!user?.id) {
     throw new Error("Unauthorized");
   }
@@ -9,10 +9,15 @@ exports.getMyProfile = async (user) => {
     .from("profiles")
     .select("id, full_name, email, role, area")
     .eq("id", user.id)
-    .maybeSingle();
+    .single();
 
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("Profile not found");
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error("Profile not found");
+  }
 
   return {
     id: data.id,
@@ -22,18 +27,34 @@ exports.getMyProfile = async (user) => {
     role: data.role,
     area: data.area
   };
-};
+}
 
-exports.changeMyPassword = async (user, newPassword) => {
+async function changeMyPassword(user, newPassword) {
   if (!user?.id) {
     throw new Error("Unauthorized");
   }
 
-  if (!newPassword || String(newPassword).length < 6) {
+  const password = String(newPassword || "").trim();
+
+  if (!password || password.length < 6) {
     throw new Error("Password must be at least 6 characters");
   }
 
-  // Passwords are managed by Supabase Auth, not the profiles table.
-  // This placeholder avoids crashing until proper auth-password update is added.
-  return { updated: false, message: "Password update must be handled through Supabase Auth" };
+  const { error } = await supabase.auth.admin.updateUserById(user.id, {
+    password
+  });
+
+  if (error) {
+    throw new Error(error.message || "Failed to update password");
+  }
+
+  return {
+    updated: true,
+    message: "Password updated successfully"
+  };
+}
+
+module.exports = {
+  getMyProfile,
+  changeMyPassword
 };

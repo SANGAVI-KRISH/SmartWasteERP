@@ -10,8 +10,11 @@ function normalizeStatus(s) {
   return String(s || "").trim().toUpperCase();
 }
 
-async function getUserProfile(user) {
+function normalizeText(v) {
+  return String(v || "").trim();
+}
 
+async function getUserProfile(user) {
   const userId = user?.id || user?.sub || user?.userId;
 
   if (!userId) return null;
@@ -27,6 +30,29 @@ async function getUserProfile(user) {
   return data || null;
 }
 
+function dedupeCollectionRows(rows) {
+  const seen = new Set();
+
+  return (rows || []).filter((r) => {
+    const taskId = normalizeText(r.task_id);
+    const staffTaskId = normalizeText(r.staff_task_id);
+
+    const key = taskId
+      ? `task:${taskId}`
+      : staffTaskId
+      ? `staff:${staffTaskId}`
+      : `manual:${normalizeText(r.date)}|${normalizeText(r.area)}|${normalizeText(
+          r.waste_type
+        )}|${normalizeText(r.quantity_kg)}|${normalizeText(
+          r.vehicle_id
+        )}|${normalizeText(r.bin_id)}`;
+
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 exports.getCollections = async ({ q, showRecycled }) => {
   const { data, error } = await supabase
     .from("collection_records")
@@ -37,6 +63,9 @@ exports.getCollections = async ({ q, showRecycled }) => {
 
   let rows = data || [];
   const includeRecycled = String(showRecycled || "").toLowerCase() === "true";
+
+  // Hide duplicate records in UI/API response
+  rows = dedupeCollectionRows(rows);
 
   if (!includeRecycled) {
     rows = rows.filter(
@@ -108,33 +137,66 @@ exports.getStaffTaskPrefill = async (staffTaskId) => {
 
 exports.createCollection = async (body, user) => {
   const date = body?.date || new Date().toISOString().slice(0, 10);
-  const area = String(body?.area || "").trim();
-  const waste_type = String(body?.waste_type || "").trim();
+  const area = normalizeText(body?.area);
+  const waste_type = normalizeText(body?.waste_type);
   const quantity_kg = toNum(body?.quantity_kg);
-  const vehicle_id = body?.vehicle_id ? String(body.vehicle_id).trim() : null;
-  const bin_id = body?.bin_id ? String(body.bin_id).trim() : null;
-  const task_id = body?.task_id ? String(body.task_id).trim() : null;
-  const staff_task_id = body?.staff_task_id ? String(body.staff_task_id).trim() : null;
+  const vehicle_id = body?.vehicle_id ? normalizeText(body.vehicle_id) : null;
+  const bin_id = body?.bin_id ? normalizeText(body.bin_id) : null;
+  const task_id = body?.task_id ? normalizeText(body.task_id) : null;
+  const staff_task_id = body?.staff_task_id
+    ? normalizeText(body.staff_task_id)
+    : null;
 
   const profile = await getUserProfile(user);
   const userId = profile?.id || user?.id || user?.userId || user?.sub || null;
 
+  if (!userId) throw new Error("Unauthorized user.");
   if (!area) throw new Error("Area is required.");
   if (!waste_type) throw new Error("Waste type is required.");
   if (!(quantity_kg > 0)) throw new Error("Quantity must be greater than 0.");
 
+  // Prevent duplicate insert for pickup task
+  if (task_id) {
+    const { data: existingTaskRow, error: existingTaskError } = await supabase
+      .from("collection_records")
+      .select("id")
+      .eq("task_id", task_id)
+      .maybeSingle();
+
+    if (existingTaskError) throw new Error(existingTaskError.message);
+
+    if (existingTaskRow) {
+      throw new Error("Collection already recorded for this pickup task.");
+    }
+  }
+
+  // Prevent duplicate insert for staff task
+  if (staff_task_id) {
+    const { data: existingStaffRow, error: existingStaffError } = await supabase
+      .from("collection_records")
+      .select("id")
+      .eq("staff_task_id", staff_task_id)
+      .maybeSingle();
+
+    if (existingStaffError) throw new Error(existingStaffError.message);
+
+    if (existingStaffRow) {
+      throw new Error("Collection already recorded for this staff task.");
+    }
+  }
+
   const payload = {
-  user_id: userId,
-  date,
-  area,
-  waste_type,
-  quantity_kg,
-  vehicle_id,
-  bin_id,
-  task_id,
-  staff_task_id,
-  created_at: new Date().toISOString()
-};
+    user_id: userId,
+    date,
+    area,
+    waste_type,
+    quantity_kg,
+    vehicle_id,
+    bin_id,
+    task_id,
+    staff_task_id,
+    created_at: new Date().toISOString()
+  };
 
   const { data, error } = await supabase
     .from("collection_records")
@@ -142,16 +204,24 @@ exports.createCollection = async (body, user) => {
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Friendly message for DB unique constraint violation
+    if (String(error.code || "") === "23505") {
+      throw new Error("Collection already recorded for this task.");
+    }
+    throw new Error(error.message);
+  }
 
   if (task_id) {
+    const updatePayload = {
+      status: "COLLECTED",
+      collected_kg: quantity_kg,
+      collected_at: new Date().toISOString()
+    };
+
     const { error: taskError } = await supabase
       .from("pickup_tasks")
-      .update({
-        status: "COLLECTED",
-        collected_kg: quantity_kg,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq("id", task_id);
 
     if (taskError) {

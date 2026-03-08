@@ -4,9 +4,17 @@ const authService = require("../services/auth.service");
 exports.register = async (req, res) => {
   try {
     const data = await authService.register(req.body);
-    res.json({ ok: true, data, message: "Account created successfully" });
+
+    return res.status(201).json({
+      ok: true,
+      message: "Account created successfully",
+      data
+    });
   } catch (err) {
-    res.status(400).json({ ok: false, message: err.message });
+    return res.status(400).json({
+      ok: false,
+      message: err.message || "Registration failed"
+    });
   }
 };
 
@@ -14,23 +22,33 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const data = await authService.login(req.body);
-    res.json({ ok: true, data });
+
+    return res.json({
+      ok: true,
+      data
+    });
   } catch (err) {
-    res.status(401).json({ ok: false, message: err.message });
+    return res.status(401).json({
+      ok: false,
+      message: err.message || "Login failed"
+    });
   }
 };
 
 // CURRENT USER
 exports.me = async (req, res) => {
   try {
-    res.json({
+    return res.json({
       ok: true,
       data: {
-        user: req.user,
+        user: req.user || null,
         role: req.user?.role || null
       }
     });
   } catch (err) {
-    res.status(500).json({ ok: false, message: err.message });
+    return res.status(500).json({
+      ok: false,
+      message: err.message || "Failed to load current user"
+    });
   }
 };

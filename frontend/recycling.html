@@ -75,20 +75,18 @@
         </div>
 
         <div class="full">
-          <div class="label">Select Collected Task / Manual Collection (auto-fill Input kg)</div>
+          <div class="label">Select Collection Record (auto-fill Input kg & Waste Type)</div>
           <select id="collectedTaskSelect">
-            <option value="">-- Select COLLECTED task / Manual Collection --</option>
+            <option value="">-- Select Collection Record --</option>
           </select>
 
           <div class="sub" style="margin-top:6px; opacity:.85;">
-            This list shows:
-            <b>pickup_tasks</b> with status <b>COLLECTED</b> and
-            <b>collection_records</b> manual collection entries.
-            Selecting one will auto-fill <b>Input (kg)</b>.
+            This list shows available <b>collection records</b>.
+            Selecting one will auto-fill <b>Input (kg)</b> and <b>Waste Type</b>.
           </div>
 
           <div class="sub" id="collectedHint" style="margin-top:6px; opacity:.85; display:none;">
-            No COLLECTED tasks / Manual Collections found.
+            No collection records found.
           </div>
         </div>
 
@@ -122,8 +120,8 @@
         <h2 style="margin:0;">Recycling Records</h2>
 
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <label style="display:flex; gap:8px; align-items:center; font-size:14px; opacity:.9;">
-            <input type="checkbox" id="onlyMineToggle">
+          <label style="display:flex; gap:8px; align-items:center; font-size:14px; opacity:.5;" title="Show only my records is disabled">
+            <input type="checkbox" id="onlyMineToggle" disabled>
             Show only my records
           </label>
 
@@ -139,6 +137,7 @@
             <th>Input</th>
             <th>Recycled</th>
             <th>Landfill</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody id="recyclingBody"></tbody>
