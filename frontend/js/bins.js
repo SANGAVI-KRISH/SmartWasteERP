@@ -1,10 +1,12 @@
+import { supabase } from "./supabaseClient.js";
+
 const BINS_TABLE = "bins";
 const PICKUP_TASKS_TABLE = "pickup_tasks";
 const PROFILES_TABLE = "profiles";
 
 const REMOVE_IF_TASK_STATUS_IN = new Set(["COLLECTED", "RECYCLED"]);
-const HIDE_EMPTY_BINS = false; // keep false so rows do not disappear unexpectedly
-const OV_KEY = "bin_task_status_override_v5";
+const HIDE_EMPTY_BINS = true;
+const OV_KEY = "bin_task_status_override_v9";
 
 let PINNED_BIN_ID = null;
 
@@ -14,6 +16,10 @@ function $(id) {
 
 function norm(v) {
   return String(v || "").trim().toUpperCase();
+}
+
+function normalizeBinId(v) {
+  return norm(v);
 }
 
 function showToast(msg) {
@@ -28,14 +34,7 @@ function showToast(msg) {
 }
 
 async function getSupabase() {
-  if (window.supabase) return window.supabase;
-
-  for (let i = 0; i < 50; i++) {
-    await new Promise((r) => setTimeout(r, 100));
-    if (window.supabase) return window.supabase;
-  }
-
-  throw new Error("Supabase client not found. Check app.js");
+  return supabase;
 }
 
 function loadOverrides() {
@@ -76,8 +75,7 @@ function toMs(dtLike) {
 function normalizeTaskStatusForUI(statusRaw) {
   const s = norm(statusRaw);
   if (!s) return "";
-  if (s === "OPEN") return "ASSIGNED";
-  if (s === "ASSIGNED") return "ASSIGNED";
+  if (s === "OPEN" || s === "ASSIGNED") return "ASSIGNED";
   if (s === "DELIVERED" || s === "RECEIVED" || s === "STARTED") return "STARTED";
   if (s === "COLLECTED") return "COLLECTED";
   if (s === "RECYCLED") return "RECYCLED";
@@ -98,34 +96,20 @@ function isTaskStillBlockingAssign(binLastUpdated, taskObjOrNull, overrideStatus
   return active;
 }
 
-async function getMyProfileSafe() {
-  const sb = await getSupabase();
-
-  const { data: authData, error: authErr } = await sb.auth.getUser();
-  if (authErr || !authData?.user) return null;
-
-  const authUser = authData.user;
-
-  const { data: profile, error: pErr } = await sb
-    .from(PROFILES_TABLE)
-    .select("id, full_name, email, role, area")
-    .eq("id", authUser.id)
-    .maybeSingle();
-
-  if (pErr) {
-    console.warn("Profile fetch failed:", pErr.message);
-    return {
-      id: authUser.id,
-      email: authUser.email,
-      role: ""
-    };
-  }
+function getSessionUser() {
+  const role = String(localStorage.getItem("role") || "").trim().toLowerCase();
+  const full_name =
+    localStorage.getItem("full_name") ||
+    localStorage.getItem("name") ||
+    localStorage.getItem("user") ||
+    "";
+  const email = localStorage.getItem("email") || "";
 
   return {
-    id: profile?.id || authUser.id,
-    full_name: profile?.full_name || "",
-    email: profile?.email || authUser.email || "",
-    role: String(profile?.role || "").toLowerCase()
+    id: null,
+    full_name,
+    email,
+    role
   };
 }
 
@@ -146,12 +130,35 @@ async function fetchBinsAll() {
   return Array.isArray(data) ? data : [];
 }
 
+async function fetchStaffNameMap() {
+  const sb = await getSupabase();
+
+  const { data, error } = await sb
+    .from(PROFILES_TABLE)
+    .select("id, full_name, email, role");
+
+  if (error) {
+    console.warn("fetchStaffNameMap error:", error.message);
+    return new Map();
+  }
+
+  const map = new Map();
+  for (const r of data || []) {
+    map.set(String(r.id), {
+      full_name: r.full_name || "",
+      email: r.email || "",
+      role: r.role || ""
+    });
+  }
+  return map;
+}
+
 async function fetchLatestTaskStatusByBinCode() {
   const sb = await getSupabase();
 
   const { data, error } = await sb
     .from(PICKUP_TASKS_TABLE)
-    .select("bin_id,status,created_at,updated_at")
+    .select("bin_id,status,created_at,assigned_to,assigned_worker_id,assigned_driver_id")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -164,10 +171,14 @@ async function fetchLatestTaskStatusByBinCode() {
   for (const r of data || []) {
     const code = norm(r?.bin_id);
     if (!code) continue;
+
     if (!map.has(code)) {
       map.set(code, {
         status: norm(r?.status),
-        ts: toMs(r?.updated_at || r?.created_at)
+        ts: toMs(r?.created_at),
+        assigned_to: r?.assigned_to || null,
+        assigned_worker_id: r?.assigned_worker_id || null,
+        assigned_driver_id: r?.assigned_driver_id || null
       });
     }
   }
@@ -189,7 +200,7 @@ function ensurePinnedRowFirst(rows) {
   return rows;
 }
 
-function updateRowActionToAssigned(binCode) {
+function updateRowActionToAssigned(binCode, assignedLabel = "Assigned") {
   const actionCell = document.querySelector(`[data-action-cell="${binCode}"]`);
   const statusCell = document.querySelector(`[data-status-cell="${binCode}"]`);
 
@@ -198,6 +209,7 @@ function updateRowActionToAssigned(binCode) {
       <button type="button" class="btn" disabled style="opacity:.75; cursor:not-allowed;">
         ASSIGNED
       </button>
+      <div style="font-size:12px; opacity:.85; margin-top:6px;">${assignedLabel}</div>
     `;
   }
 
@@ -219,9 +231,12 @@ async function loadAssignableStaff() {
     .in("role", ["worker", "driver"])
     .order("full_name", { ascending: true });
 
+  console.log("loadAssignableStaff:", { data, error });
+
   if (error) {
     console.error("loadAssignableStaff error:", error);
     select.innerHTML = `<option value="">No staff available</option>`;
+    showToast(error.message || "Failed to load staff");
     return;
   }
 
@@ -229,6 +244,7 @@ async function loadAssignableStaff() {
 
   if (!staff.length) {
     select.innerHTML = `<option value="">No staff available</option>`;
+    showToast("No worker/driver found in profiles");
     return;
   }
 
@@ -237,7 +253,7 @@ async function loadAssignableStaff() {
   staff.forEach((s) => {
     const option = document.createElement("option");
     option.value = s.id;
-    option.dataset.role = s.role || "";
+    option.dataset.role = String(s.role || "").toLowerCase();
     option.textContent = `${s.full_name || s.email || "Staff"} (${s.role || "staff"})`;
     select.appendChild(option);
   });
@@ -253,7 +269,14 @@ async function safeInsertPickupTask(payload) {
       area: payload.area,
       status: payload.status,
       assigned_worker_id: payload.assigned_worker_id || null,
-      assigned_driver_id: payload.assigned_driver_id || null
+      assigned_driver_id: payload.assigned_driver_id || null,
+      assigned_to: payload.assigned_to || null
+    },
+    {
+      bin_id: payload.bin_id,
+      area: payload.area,
+      status: payload.status,
+      assigned_to: payload.assigned_to || null
     },
     {
       bin_id: payload.bin_id,
@@ -265,12 +288,36 @@ async function safeInsertPickupTask(payload) {
   let lastError = null;
 
   for (const p of tryPayloads) {
-    const { error } = await sb.from(PICKUP_TASKS_TABLE).insert(p);
-    if (!error) return { ok: true };
+    const { data, error } = await sb
+      .from(PICKUP_TASKS_TABLE)
+      .insert(p)
+      .select();
+
+    if (!error) return { ok: true, data };
     lastError = error;
+    console.warn("pickup_tasks insert failed with payload:", p, error);
   }
 
   return { ok: false, error: lastError };
+}
+
+function getAssignedPersonLabel(taskObj, staffMap) {
+  if (!taskObj) return "";
+
+  const assignedId =
+    taskObj.assigned_to ||
+    taskObj.assigned_worker_id ||
+    taskObj.assigned_driver_id ||
+    null;
+
+  if (!assignedId) return "";
+
+  const person = staffMap.get(String(assignedId));
+  if (!person) return "Assigned staff";
+
+  const name = person.full_name || person.email || "Staff";
+  const role = person.role ? ` (${person.role})` : "";
+  return `Assigned to: ${name}${role}`;
 }
 
 async function renderBins() {
@@ -280,12 +327,13 @@ async function renderBins() {
   const q = ($("searchBins")?.value || "").toLowerCase().trim();
 
   try {
-    const [binsRaw, taskMap, me] = await Promise.all([
+    const [binsRaw, taskMap, staffMap] = await Promise.all([
       fetchBinsAll(),
       fetchLatestTaskStatusByBinCode(),
-      getMyProfileSafe()
+      fetchStaffNameMap()
     ]);
 
+    const me = getSessionUser();
     const isAdmin = me?.role === "admin";
     const adminHint = $("adminAssignHint");
     if (adminHint) adminHint.style.display = isAdmin ? "block" : "none";
@@ -298,7 +346,7 @@ async function renderBins() {
     }));
 
     if (HIDE_EMPTY_BINS) {
-      rows = rows.filter((r) => String(r.status || "").toLowerCase() !== "empty");
+      rows = rows.filter((r) => String(r.status || "").trim().toLowerCase() !== "empty");
     }
 
     if (q) {
@@ -330,20 +378,18 @@ async function renderBins() {
           overrideStatus
         );
 
-        const displayStatus =
-          taskBlocksAssign && taskStatusUI
-            ? taskStatusUI
-            : r.status || "-";
+        const displayStatus = taskBlocksAssign && taskStatusUI ? taskStatusUI : r.status || "-";
+        const assignedLabel = taskBlocksAssign ? getAssignedPersonLabel(t, staffMap) : "";
 
         const st = String(displayStatus).toLowerCase();
         const badge =
           st === "full"
             ? "badge red"
             : st === "half"
-            ? "badge amber"
-            : st === "assigned" || st === "started"
-            ? "badge amber"
-            : "badge";
+              ? "badge amber"
+              : st === "assigned" || st === "started"
+                ? "badge amber"
+                : "badge";
 
         const dt = r.lastUpdated ? new Date(r.lastUpdated) : null;
         const when = dt && !isNaN(dt) ? dt.toLocaleString() : "-";
@@ -356,6 +402,7 @@ async function renderBins() {
               <button type="button" class="btn" disabled style="opacity:.75; cursor:not-allowed;">
                 ${taskStatusUI || "ASSIGNED"}
               </button>
+              ${assignedLabel ? `<div style="font-size:12px; opacity:.85; margin-top:6px;">${assignedLabel}</div>` : ""}
             `;
           } else {
             actionHtml = `
@@ -396,22 +443,22 @@ async function renderBins() {
 }
 
 function openAssignBinModal(binCode, area = "") {
-  $("assignBinId").value = binCode || "";
-  $("assignBinArea").value = area || "";
-  $("assignBinPriority").value = "normal";
-  $("assignBinNotes").value = "";
-  $("assignBinModal").style.display = "flex";
+  if ($("assignBinId")) $("assignBinId").value = binCode || "";
+  if ($("assignBinArea")) $("assignBinArea").value = area || "";
+  if ($("assignBinPriority")) $("assignBinPriority").value = "normal";
+  if ($("assignBinNotes")) $("assignBinNotes").value = "";
+  if ($("assignBinModal")) $("assignBinModal").style.display = "flex";
   loadAssignableStaff();
 }
 
 function closeAssignBinModal() {
-  $("assignBinModal").style.display = "none";
+  if ($("assignBinModal")) $("assignBinModal").style.display = "none";
 }
 
 async function saveBin() {
   const sb = await getSupabase();
 
-  const bin_id = $("binid")?.value?.trim();
+  const bin_id = normalizeBinId($("binid")?.value);
   const area = $("binarea")?.value?.trim();
   const status = $("status")?.value?.trim();
 
@@ -427,27 +474,57 @@ async function saveBin() {
       btn.textContent = "Updating...";
     }
 
-    const payload = {
-      bin_id,
-      area,
-      status,
-      updated_at: new Date().toISOString()
-    };
-
-    const { error } = await sb
+    const { data: existing, error: findErr } = await sb
       .from(BINS_TABLE)
-      .upsert(payload, { onConflict: "bin_id" });
+      .select("id, bin_id")
+      .eq("bin_id", bin_id)
+      .maybeSingle();
 
-    if (error) {
-      console.error("saveBin error:", error);
-      showToast(error.message || "Failed to update bin");
+    if (findErr) {
+      console.error("find bin error:", findErr);
+      showToast(findErr.message || "Failed to find bin");
+      return;
+    }
+
+    let result;
+
+    if (existing) {
+      result = await sb
+        .from(BINS_TABLE)
+        .update({
+          area,
+          status,
+          updated_at: new Date().toISOString()
+        })
+        .eq("bin_id", bin_id)
+        .select();
+    } else {
+      result = await sb
+        .from(BINS_TABLE)
+        .insert({
+          bin_id,
+          area,
+          status,
+          updated_at: new Date().toISOString()
+        })
+        .select();
+    }
+
+    if (result.error) {
+      console.error("saveBin error:", result.error);
+      showToast(result.error.message || "Failed to update bin");
       return;
     }
 
     clearOverride(bin_id);
     PINNED_BIN_ID = bin_id;
 
-    showToast("Bin updated");
+    showToast("Bin updated successfully");
+
+    if ($("binid")) $("binid").value = "";
+    if ($("binarea")) $("binarea").value = "";
+    if ($("status")) $("status").value = "Empty";
+
     await renderBins();
   } catch (err) {
     console.error("saveBin exception:", err);
@@ -463,7 +540,13 @@ async function saveBin() {
 async function confirmAssignBin(e) {
   if (e) e.preventDefault();
 
-  const binCode = $("assignBinId")?.value?.trim();
+  const me = getSessionUser();
+  if (me.role !== "admin") {
+    showToast("Only admin can assign bins");
+    return;
+  }
+
+  const binCode = normalizeBinId($("assignBinId")?.value);
   const area = $("assignBinArea")?.value?.trim() || "";
   const assignedTo = $("assignBinTo")?.value?.trim();
   const priority = $("assignBinPriority")?.value?.trim() || "normal";
@@ -474,6 +557,7 @@ async function confirmAssignBin(e) {
 
   const selectedOption = $("assignBinTo")?.selectedOptions?.[0];
   const selectedRole = String(selectedOption?.dataset?.role || "").toLowerCase();
+  const selectedLabel = selectedOption?.textContent || "Assigned staff";
 
   const btn = $("btnAssignBinConfirm");
 
@@ -488,7 +572,8 @@ async function confirmAssignBin(e) {
       area,
       status: "OPEN",
       priority,
-      notes
+      notes,
+      assigned_to: assignedTo
     };
 
     if (selectedRole === "worker") {
@@ -496,8 +581,10 @@ async function confirmAssignBin(e) {
     } else if (selectedRole === "driver") {
       payload.assigned_driver_id = assignedTo;
     } else {
-      payload.assigned_worker_id = assignedTo;
+      payload.assigned_to = assignedTo;
     }
+
+    console.log("assign payload:", payload);
 
     const result = await safeInsertPickupTask(payload);
 
@@ -508,7 +595,7 @@ async function confirmAssignBin(e) {
     }
 
     setOverride(binCode, "ASSIGNED");
-    updateRowActionToAssigned(binCode);
+    updateRowActionToAssigned(binCode, `Assigned to: ${selectedLabel}`);
     closeAssignBinModal();
     showToast("Bin assigned successfully");
 
@@ -528,9 +615,9 @@ async function confirmAssignBin(e) {
 
 window.addEventListener("DOMContentLoaded", async () => {
   try {
-    const me = await getMyProfileSafe();
+    const me = getSessionUser();
 
-    if (!me) {
+    if (!me.role) {
       showToast("Please login first");
       return;
     }

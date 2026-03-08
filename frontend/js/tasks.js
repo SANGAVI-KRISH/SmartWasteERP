@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from "./apiClient.js";
+import { apiGet, apiPatch, apiPost } from "./apiClient.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,12 +21,15 @@ function toast(msg) {
   t.textContent = msg;
   t.style.display = "block";
   clearTimeout(window.__toastTimer);
-  window.__toastTimer = setTimeout(() => (t.style.display = "none"), 1800);
+  window.__toastTimer = setTimeout(() => {
+    t.style.display = "none";
+  }, 1800);
 }
 
 async function copyToClipboard(text) {
   const t = String(text || "");
   if (!t) return;
+
   try {
     await navigator.clipboard.writeText(t);
     toast("Copied ✅");
@@ -48,28 +51,71 @@ function removeCollectionButton(html) {
     .trim();
 }
 
+function norm(s) {
+  return String(s || "").trim().toUpperCase();
+}
+
+function getNextPickupStatus(currentStatus) {
+  const s = norm(currentStatus);
+
+  if (s === "OPEN" || s === "ASSIGNED") return "COLLECTED";
+  if (s === "COLLECTED") return "DELIVERED";
+  if (s === "DELIVERED") return "RECEIVED";
+  if (s === "RECEIVED") return "RECYCLED";
+
+  return null;
+}
+
+function getPickupActionLabel(currentStatus) {
+  const s = norm(currentStatus);
+
+  if (s === "OPEN" || s === "ASSIGNED") return "Mark Collected";
+  if (s === "COLLECTED") return "Mark Delivered";
+  if (s === "DELIVERED") return "Mark Received";
+  if (s === "RECEIVED") return "Mark Recycled";
+  if (s === "RECYCLED") return "Recycled";
+
+  return "-";
+}
+
+function getNextTripStatus(currentStatus) {
+  const s = norm(currentStatus);
+
+  if (s === "ASSIGNED") return "Started";
+  if (s === "STARTED") return "Completed";
+
+  return null;
+}
+
+function getTripActionLabel(currentStatus) {
+  const s = norm(currentStatus);
+
+  if (s === "ASSIGNED") return "Work Started";
+  if (s === "STARTED") return "Work Completed";
+  if (s === "COMPLETED") return "Done";
+
+  return "-";
+}
+
 function pickupActionButton(task, role) {
   const status = String(task.status || "").trim();
 
   if (role === "admin") return `<span style="opacity:.65;">-</span>`;
 
-  if (status === "OPEN" || status === "Assigned") {
-    return `<button class="btn" data-pickup-start="${escapeHtml(task.id)}">Start</button>`;
+  const label = getPickupActionLabel(status);
+  const nextStatus = getNextPickupStatus(status);
+  const id = escapeHtml(task.id || task.taskId || "");
+
+  if (!id) return `<span style="opacity:.65;">-</span>`;
+
+  if (!nextStatus) {
+    if (norm(status) === "RECYCLED") {
+      return `<button class="btn" disabled style="opacity:.75;">Recycled</button>`;
+    }
+    return `<span style="opacity:.65;">-</span>`;
   }
 
-  if (status === "STARTED" || status === "In Progress") {
-    return `<button class="btn" data-pickup-collected="${escapeHtml(task.id)}">Mark Collected</button>`;
-  }
-
-  if (status === "COLLECTED") {
-    return `<button class="btn" disabled style="opacity:.75;">Collected</button>`;
-  }
-
-  if (status === "RECYCLED") {
-    return `<button class="btn" disabled style="opacity:.75;">Recycled</button>`;
-  }
-
-  return `<span style="opacity:.65;">-</span>`;
+  return `<button class="btn" data-pickup-action="${id}" data-next-status="${escapeHtml(nextStatus)}">${escapeHtml(label)}</button>`;
 }
 
 async function updatePickupStatus(id, status) {
@@ -90,28 +136,63 @@ async function updateStaffTaskStatus(id, status) {
   return true;
 }
 
+function askCollectedQuantity() {
+  const input = prompt("Enter collected quantity in kg:");
+  if (input == null) return null;
+
+  const qty = Number(String(input).trim());
+  if (!Number.isFinite(qty) || qty <= 0) {
+    toast("Enter a valid quantity");
+    return null;
+  }
+
+  return qty;
+}
+
+/*
+  Creates the collection entry automatically.
+  First tries /api/collection and then /api/collections.
+*/
+async function createCollectionEntryForPickup(task, quantityKg) {
+  const payload = {
+    task_id: task.taskId || task.id || "",
+    staff_task_id: task.raw?.staff_task_id || null,
+    bin_id: task.raw?.bin_id || task.raw?.binId || task.raw?.bin_code || "",
+    area: task.raw?.area || "",
+    quantity_kg: quantityKg,
+    waste_type: task.raw?.waste_type || "Dry",
+    date: new Date().toISOString().slice(0, 10)
+  };
+
+  let res = await apiPost("/api/collection", payload);
+  if (res.ok) return res;
+
+  res = await apiPost("/api/collections", payload);
+  return res;
+}
+
 window.__tripToggle = async (id) => {
   try {
     if (!id) return;
 
     const tr = document.querySelector(`tr[data-trip-id="${CSS.escape(id)}"]`);
     const currentStatus = (tr?.getAttribute("data-status") || "Assigned").trim();
+    const nextStatus = getNextTripStatus(currentStatus);
 
-    if (currentStatus === "Assigned") {
-      const ok = await updateStaffTaskStatus(id, "Started");
-      if (!ok) return;
-      await renderMyTasksTable();
+    if (!nextStatus) {
+      toast("Already completed ✅");
       return;
     }
 
-    if (currentStatus === "Started") {
-      const ok = await updateStaffTaskStatus(id, "Completed");
-      if (!ok) return;
+    const ok = await updateStaffTaskStatus(id, nextStatus);
+    if (!ok) return;
+
+    if (norm(nextStatus) === "COMPLETED") {
       window.location = `collection.html?staff_task_id=${encodeURIComponent(id)}&mode=trip`;
       return;
     }
 
-    toast("Already completed ✅");
+    await renderMyTasksTable();
   } catch (e) {
     console.log("trip toggle error:", e);
     toast("Error: " + (e?.message || e));
@@ -123,7 +204,9 @@ async function loadTasks() {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
 
-  const res = await apiGet(`/api/tasks?${params.toString()}`);
+  const url = params.toString() ? `/api/tasks?${params.toString()}` : "/api/tasks";
+  const res = await apiGet(url);
+
   if (!res.ok) {
     $("tasksBody").innerHTML = `<tr><td colspan="5" style="opacity:.85;">${escapeHtml(res.message || "Failed to load tasks")}</td></tr>`;
     return [];
@@ -143,19 +226,31 @@ async function renderMyTasksTable() {
     return;
   }
 
-  tbody.innerHTML = rows.map(r => {
-    let action = r.kind === "PICKUP"
-      ? pickupActionButton(r.raw || r, role)
-      : (role !== "admin"
-          ? (r.status === "Completed"
-              ? "✅ Done"
-              : `<button class="btn" onclick="__tripToggle('${escapeHtml(r.taskId)}')">${r.status === "Assigned" ? "Work Started" : "Work Completed"}</button>`)
-          : `<span style="opacity:.65;">-</span>`);
+  tbody.innerHTML = rows.map((r) => {
+    let action = "";
+
+    if (r.kind === "PICKUP") {
+      action = pickupActionButton(r.raw || r, role);
+    } else {
+      if (role === "admin") {
+        action = `<span style="opacity:.65;">-</span>`;
+      } else {
+        const tripLabel = getTripActionLabel(r.status);
+        if (norm(r.status) === "COMPLETED") {
+          action = `✅ ${escapeHtml(tripLabel)}`;
+        } else {
+          action = `<button class="btn" onclick="__tripToggle('${escapeHtml(r.taskId)}')">${escapeHtml(tripLabel)}</button>`;
+        }
+      }
+    }
 
     action = removeCollectionButton(action);
 
     return `
-      <tr ${r.kind === "TRIP" ? `data-trip-id="${escapeHtml(r.taskId)}" data-status="${escapeHtml(r.status)}"` : ""}>
+      <tr
+        ${r.kind === "TRIP" ? `data-trip-id="${escapeHtml(r.taskId)}" data-status="${escapeHtml(r.status)}"` : ""}
+        ${r.kind === "PICKUP" ? `data-pickup-id="${escapeHtml(r.taskId)}" data-status="${escapeHtml(r.status)}"` : ""}
+      >
         <td>${escapeHtml(r.taskLabel)}</td>
         <td>${escapeHtml(r.details)}</td>
         <td class="task-id">
@@ -170,22 +265,53 @@ async function renderMyTasksTable() {
     `;
   }).join("");
 
-  tbody.querySelectorAll("[data-copy]").forEach(btn => {
+  tbody.querySelectorAll("[data-copy]").forEach((btn) => {
     btn.addEventListener("click", () => copyToClipboard(btn.getAttribute("data-copy")));
   });
 
-  tbody.querySelectorAll("[data-pickup-start]").forEach(btn => {
+  tbody.querySelectorAll("[data-pickup-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const id = btn.getAttribute("data-pickup-start");
-      const ok = await updatePickupStatus(id, "STARTED");
-      if (ok) await renderMyTasksTable();
-    });
-  });
+      const id = btn.getAttribute("data-pickup-action");
+      const nextStatus = btn.getAttribute("data-next-status");
+      const task = rows.find((r) => r.taskId === id);
 
-  tbody.querySelectorAll("[data-pickup-collected]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const id = btn.getAttribute("data-pickup-collected");
-      window.location = `collection.html?task_id=${encodeURIComponent(id)}&mode=pickup`;
+      if (!id || !nextStatus) {
+        toast("Invalid pickup task status");
+        return;
+      }
+
+      if (!task) {
+        toast("Task not found");
+        return;
+      }
+
+      if (nextStatus === "COLLECTED") {
+        const qty = askCollectedQuantity();
+        if (qty == null) return;
+
+        const collectionRes = await createCollectionEntryForPickup(task, qty);
+        if (!collectionRes.ok) {
+          toast(collectionRes.message || "Failed to create collection entry");
+          return;
+        }
+      }
+
+      const ok = await updatePickupStatus(id, nextStatus);
+      if (!ok) return;
+
+      if (nextStatus === "COLLECTED") {
+        toast("Collection saved and task marked collected ✅");
+      } else if (nextStatus === "DELIVERED") {
+        toast("Task marked delivered ✅");
+      } else if (nextStatus === "RECEIVED") {
+        toast("Task marked received ✅");
+      } else if (nextStatus === "RECYCLED") {
+        toast("Task marked recycled ✅");
+      } else {
+        toast("Pickup task updated ✅");
+      }
+
+      await renderMyTasksTable();
     });
   });
 }
@@ -202,7 +328,9 @@ function safeLogout() {
 window.addEventListener("DOMContentLoaded", async () => {
   await renderMyTasksTable();
 
-  $("searchTasks")?.addEventListener("input", () => renderMyTasksTable());
+  $("searchTasks")?.addEventListener("input", () => {
+    renderMyTasksTable();
+  });
 
   $("refreshTasksBtn")?.addEventListener("click", async () => {
     await renderMyTasksTable();

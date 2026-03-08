@@ -10,8 +10,21 @@ function normalizeStatus(s) {
   return String(s || "").trim().toUpperCase();
 }
 
-function isAdmin(user) {
-  return String(user?.role || "").trim().toLowerCase() === "admin";
+async function getUserProfile(user) {
+
+  const userId = user?.id || user?.sub || user?.userId;
+
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, role, email, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+
+  return data || null;
 }
 
 exports.getCollections = async ({ q, showRecycled }) => {
@@ -23,11 +36,12 @@ exports.getCollections = async ({ q, showRecycled }) => {
   if (error) throw new Error(error.message);
 
   let rows = data || [];
-
   const includeRecycled = String(showRecycled || "").toLowerCase() === "true";
 
   if (!includeRecycled) {
-    rows = rows.filter((r) => normalizeStatus(r.pickup_status || r.status) !== "RECYCLED");
+    rows = rows.filter(
+      (r) => normalizeStatus(r.pickup_status || r.status) !== "RECYCLED"
+    );
   }
 
   if (q) {
@@ -102,23 +116,25 @@ exports.createCollection = async (body, user) => {
   const task_id = body?.task_id ? String(body.task_id).trim() : null;
   const staff_task_id = body?.staff_task_id ? String(body.staff_task_id).trim() : null;
 
+  const profile = await getUserProfile(user);
+  const userId = profile?.id || user?.id || user?.userId || user?.sub || null;
+
   if (!area) throw new Error("Area is required.");
   if (!waste_type) throw new Error("Waste type is required.");
   if (!(quantity_kg > 0)) throw new Error("Quantity must be greater than 0.");
 
   const payload = {
-    date,
-    area,
-    waste_type,
-    quantity_kg,
-    vehicle_id,
-    bin_id,
-    task_id,
-    staff_task_id,
-    created_at: new Date().toISOString(),
-    created_by: user?.id || null,
-    pickup_status: "COLLECTED"
-  };
+  user_id: userId,
+  date,
+  area,
+  waste_type,
+  quantity_kg,
+  vehicle_id,
+  bin_id,
+  task_id,
+  staff_task_id,
+  created_at: new Date().toISOString()
+};
 
   const { data, error } = await supabase
     .from("collection_records")
@@ -129,7 +145,7 @@ exports.createCollection = async (body, user) => {
   if (error) throw new Error(error.message);
 
   if (task_id) {
-    await supabase
+    const { error: taskError } = await supabase
       .from("pickup_tasks")
       .update({
         status: "COLLECTED",
@@ -137,27 +153,41 @@ exports.createCollection = async (body, user) => {
         updated_at: new Date().toISOString()
       })
       .eq("id", task_id);
+
+    if (taskError) {
+      console.error("pickup_tasks update failed:", taskError.message);
+    }
   }
 
   if (bin_id) {
-    await supabase
+    const { error: binError } = await supabase
       .from("bins")
       .update({
-        status: "EMPTY",
+        status: "Empty",
         updated_at: new Date().toISOString()
       })
       .eq("bin_id", bin_id);
+
+    if (binError) {
+      console.error("bins update failed:", binError.message);
+    }
   }
 
   return data;
 };
 
 exports.deleteCollection = async (id, user) => {
-  if (!isAdmin(user)) {
-    throw new Error("Only admin can delete collection records.");
+  if (!id) throw new Error("Collection id is required.");
+
+  const profile = await getUserProfile(user);
+
+  if (!profile) {
+    throw new Error("User profile not found.");
   }
 
-  if (!id) throw new Error("Collection id is required.");
+  if (String(profile.role || "").trim().toLowerCase() !== "admin") {
+    throw new Error("Only admin can delete collection records.");
+  }
 
   const { data: existing, error: fetchError } = await supabase
     .from("collection_records")

@@ -84,7 +84,7 @@ async function autofillFromUrl() {
   }
 
   if (task_id || staff_task_id) {
-    $("entryMode").value = "task";
+    if ($("entryMode")) $("entryMode").value = "task";
     applyEntryModeUI();
     toast("Auto-filled from task ✅");
   }
@@ -92,6 +92,8 @@ async function autofillFromUrl() {
 
 async function renderCollections() {
   const body = $("collectionsBody");
+  if (!body) return;
+
   const q = ($("searchCollections")?.value || "").trim();
   const showRecycled = !!$("showRecycledToggle")?.checked;
 
@@ -113,11 +115,14 @@ async function renderCollections() {
     return;
   }
 
-  body.innerHTML = rows.map(r => {
-    const st = r.pickup_status || "";
+  body.innerHTML = rows.map((r) => {
+    const st = String(r.pickup_status || "").toUpperCase();
+
     const badge = st === "RECYCLED"
       ? `<span style="padding:2px 8px; border-radius:999px; font-size:12px; background:rgba(0,0,0,.06);">RECYCLED</span>`
-      : (st ? `<span style="opacity:.75; font-size:12px;">${esc(st)}</span>` : `<span style="opacity:.55;">-</span>`);
+      : (st
+          ? `<span style="opacity:.75; font-size:12px;">${esc(st)}</span>`
+          : `<span style="opacity:.55;">-</span>`);
 
     return `
       <tr>
@@ -128,12 +133,13 @@ async function renderCollections() {
         <td>${esc(r.vehicle_id ?? "-")}</td>
         <td>${esc(r.bin_id ?? "-")}</td>
         <td style="max-width:220px; word-break:break-all;">
-          ${esc(r.task_id ?? "-")} <div style="margin-top:4px;">${badge}</div>
+          ${esc(r.task_id ?? "-")}
+          <div style="margin-top:4px;">${badge}</div>
         </td>
         <td style="max-width:220px; word-break:break-all;">${esc(r.staff_task_id ?? "-")}</td>
         <td>
           ${canDelete
-            ? `<button class="btn red" style="padding:6px 10px;" data-del="${esc(r.id)}">Delete</button>`
+            ? `<button type="button" class="btn red" style="padding:6px 10px;" data-del="${esc(r.id)}">Delete</button>`
             : `<span style="opacity:.65;">-</span>`}
         </td>
       </tr>
@@ -141,27 +147,55 @@ async function renderCollections() {
   }).join("");
 
   if (canDelete) {
-    body.querySelectorAll("[data-del]").forEach(btn => {
-      btn.addEventListener("click", () => deleteCollection(btn.getAttribute("data-del")));
+    body.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-del");
+        await deleteCollection(id, btn);
+      });
     });
   }
 }
 
-async function deleteCollection(id) {
+async function deleteCollection(id, btnEl = null) {
   if (getRole() !== "admin") {
-    return toast("Only admin can delete collection records.", false);
+    toast("Only admin can delete collection records.", false);
+    return;
   }
 
-  if (!confirm("Delete this record?")) return;
-
-  const res = await apiDelete(`/api/collection/${id}`);
-  if (!res.ok) {
-    return toast("Delete failed: " + (res.message || "Unknown error"), false);
+  if (!id) {
+    toast("Invalid collection id.", false);
+    return;
   }
 
-  toast("Deleted ✅");
-  await renderCollections();
-  pingBinsRefresh();
+  const ok = confirm("Delete this record?");
+  if (!ok) return;
+
+  const oldText = btnEl?.textContent;
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = "Deleting...";
+  }
+
+  try {
+    const res = await apiDelete(`/api/collection/${encodeURIComponent(id)}`);
+
+    if (!res.ok) {
+      toast("Delete failed: " + (res.message || "Unknown error"), false);
+      return;
+    }
+
+    toast("Deleted ✅");
+    await renderCollections();
+    pingBinsRefresh();
+  } catch (err) {
+    console.error("Delete error:", err);
+    toast("Delete failed. Please try again.", false);
+  } finally {
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.textContent = oldText || "Delete";
+    }
+  }
 }
 
 async function saveCollection() {
@@ -169,9 +203,11 @@ async function saveCollection() {
   window.__savingCollection = true;
 
   const btn = $("saveCollectionBtn");
-  const oldText = btn.textContent;
-  btn.textContent = "Saving...";
-  btn.disabled = true;
+  const oldText = btn?.textContent || "Save Collection";
+  if (btn) {
+    btn.textContent = "Saving...";
+    btn.disabled = true;
+  }
 
   try {
     const mode = ($("entryMode")?.value || "task");
@@ -204,14 +240,24 @@ async function saveCollection() {
     }
 
     toast("Collection saved ✅");
+
     if ($("qty")) $("qty").value = "";
+    if (($("entryMode")?.value || "task") === "manual") {
+      if ($("binId")) $("binId").value = "";
+      if ($("vehicleId")) $("vehicleId").value = "";
+    }
 
     await renderCollections();
     pingBinsRefresh();
+  } catch (err) {
+    console.error("Save error:", err);
+    toast("Save failed. Please try again.", false);
   } finally {
     window.__savingCollection = false;
-    btn.textContent = oldText;
-    btn.disabled = false;
+    if (btn) {
+      btn.textContent = oldText;
+      btn.disabled = false;
+    }
   }
 }
 
@@ -220,7 +266,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   $("entryMode")?.addEventListener("change", applyEntryModeUI);
   $("saveCollectionBtn")?.addEventListener("click", saveCollection);
-  $("goStaffVehicleBtn")?.addEventListener("click", () => (window.location.href = "staff_vehicle.html"));
+  $("goStaffVehicleBtn")?.addEventListener("click", () => {
+    window.location.href = "staff_vehicle.html";
+  });
   $("searchCollections")?.addEventListener("input", renderCollections);
   $("showRecycledToggle")?.addEventListener("change", renderCollections);
 

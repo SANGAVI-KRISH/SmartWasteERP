@@ -9,91 +9,88 @@ function matchesQuery(row, q) {
   return blob.includes(String(q || "").toLowerCase().trim());
 }
 
-function todayLocalYMD() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function toYMD(value) {
-  if (!value) return null;
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return null;
-
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function isPickupCompleted(status) {
-  const s = String(status || "").trim().toUpperCase();
-  return ["COLLECTED", "RECYCLED", "DELIVERED", "RECEIVED", "COMPLETED"].includes(s);
-}
-
-function isTripCompleted(status) {
-  return String(status || "").trim().toUpperCase() === "COMPLETED";
-}
-
-function shouldShowCompletedTask(dateValue) {
-  return toYMD(dateValue) === todayLocalYMD();
-}
-
 async function getBinStatusMap(binIds) {
   const ids = [...new Set((binIds || []).filter(Boolean))];
   if (!ids.length) return {};
 
   const { data, error } = await supabase
     .from("bins")
-    .select("bin_id,status,bin_status")
+    .select("bin_id,status")
     .in("bin_id", ids);
 
-  if (error) return {};
+  if (error) {
+    console.warn("getBinStatusMap error:", error.message);
+    return {};
+  }
 
   const map = {};
   (data || []).forEach((b) => {
-    map[b.bin_id] = b.status || b.bin_status || "-";
+    map[b.bin_id] = b.status || "-";
   });
   return map;
 }
 
 exports.getMyTasks = async (user, query) => {
   const role = roleOf(user);
-  const userId = user?.id;
-  const q = String(query.q || "").trim();
+  const userId = user?.id || user?.userId;
+  const q = String(query?.q || "").trim();
+
+  console.log("getMyTasks user:", { userId, role });
 
   let pickupQuery = supabase
     .from("pickup_tasks")
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (role === "worker" || role === "driver") {
+  if (role === "worker") {
     pickupQuery = pickupQuery.or(
-      `assigned_worker_id.eq.${userId},assigned_driver_id.eq.${userId},assigned_to.eq.${userId}`
+      `assigned_worker_id.eq.${userId},assigned_to.eq.${userId}`
+    );
+  } else if (role === "driver") {
+    pickupQuery = pickupQuery.or(
+      `assigned_driver_id.eq.${userId},assigned_to.eq.${userId}`
     );
   }
 
   const { data: pickup, error: pErr } = await pickupQuery;
-  if (pErr) throw new Error(pErr.message);
-
-  const binStatusMap = await getBinStatusMap((pickup || []).map((t) => t.bin_id));
+  if (pErr) {
+    console.error("pickupQuery error:", pErr);
+    throw new Error(pErr.message);
+  }
 
   let staffQuery = supabase
     .from("staff_tasks")
-    .select("id,task_type,date,vehicle_id,route,shift,status,created_at,updated_at,completed_at,assigned_to,staff_id")
+    .select("id,task_type,date,vehicle_id,route,shift,status,created_at,completed_at,assigned_to")
     .order("created_at", { ascending: false });
 
   if (role !== "admin") {
-    staffQuery = staffQuery.or(`assigned_to.eq.${userId},staff_id.eq.${userId}`);
+    staffQuery = staffQuery.eq("assigned_to", userId);
   }
 
   const { data: staffTasks, error: sErr } = await staffQuery;
-  if (sErr) throw new Error(sErr.message);
+  if (sErr) {
+    console.error("staffQuery error:", sErr);
+    throw new Error(sErr.message);
+  }
+
+  console.log("pickup raw:", pickup);
+  console.log("staff raw:", staffTasks);
+
+  const binStatusMap = await getBinStatusMap((pickup || []).map((t) => t.bin_id));
 
   const pickupRows = (pickup || [])
     .filter((t) => {
-      if (!isPickupCompleted(t.status)) return true;
-      return shouldShowCompletedTask(
-        t.completed_at || t.updated_at || t.created_at
-      );
+      const taskStatus = String(t.status || "").trim().toUpperCase();
+      const binStatus = String(binStatusMap[t.bin_id] || "").trim().toUpperCase();
+
+      // hide if task already completed
+      if (taskStatus === "COLLECTED") return false;
+      if (taskStatus === "RECYCLED") return false;
+
+      // hide if bin is already empty (work effectively completed / stale task)
+      if (binStatus === "EMPTY") return false;
+
+      return true;
     })
     .map((t) => {
       const bStatus = binStatusMap[t.bin_id] || "-";
@@ -102,25 +99,20 @@ exports.getMyTasks = async (user, query) => {
         taskLabel: `Bin: ${t.bin_id || "-"}`,
         details: `Area: ${t.area || "-"} | Bin Status: ${bStatus}`,
         taskId: t.id || "",
-        status: t.status || "-",
+        status: String(t.status || "OPEN").trim(),
         raw: t,
       };
     });
 
   const tripRows = (staffTasks || [])
-    .filter((t) => String(t.task_type || "").toUpperCase() === "TRIP")
-    .filter((t) => {
-      if (!isTripCompleted(t.status)) return true;
-      return shouldShowCompletedTask(
-        t.completed_at || t.updated_at || t.date || t.created_at
-      );
-    })
+    .filter((t) => String(t.task_type || "").trim().toUpperCase() === "TRIP")
+    .filter((t) => String(t.status || "").trim().toUpperCase() !== "COMPLETED")
     .map((t) => ({
       kind: "TRIP",
       taskLabel: `Trip: ${t.vehicle_id || "-"}`,
       details: `${t.route || "-"} | ${t.shift || "-"} | ${t.date || "-"}`,
       taskId: t.id || "",
-      status: (t.status || "Assigned").trim(),
+      status: String(t.status || "Assigned").trim(),
       raw: t,
     }));
 
@@ -130,12 +122,13 @@ exports.getMyTasks = async (user, query) => {
     rows = rows.filter((r) => matchesQuery(r, q));
   }
 
+  console.log("rows returned:", rows);
   return rows;
 };
 
 exports.updatePickupTaskStatus = async (id, status, user) => {
   const normalizedStatus = String(status || "").trim().toUpperCase();
-  const allowed = ["STARTED", "COLLECTED", "RECYCLED", "DELIVERED", "RECEIVED", "ASSIGNED", "OPEN"];
+  const allowed = ["OPEN", "COLLECTED", "DELIVERED", "RECEIVED", "RECYCLED"];
 
   if (!allowed.includes(normalizedStatus)) {
     throw new Error("Invalid pickup task status");
@@ -143,13 +136,42 @@ exports.updatePickupTaskStatus = async (id, status, user) => {
 
   const payload = {
     status: normalizedStatus,
-    updated_at: new Date().toISOString(),
   };
 
-  if (isPickupCompleted(normalizedStatus)) {
-    payload.completed_at = new Date().toISOString();
-  } else {
-    payload.completed_at = null;
+  if (normalizedStatus === "COLLECTED") {
+    payload.collected_at = new Date().toISOString();
+
+    const { data: taskRow } = await supabase
+      .from("pickup_tasks")
+      .select("bin_id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (taskRow?.bin_id) {
+      const { error: binErr } = await supabase
+        .from("bins")
+        .update({
+          status: "Empty",
+          updated_at: new Date().toISOString()
+        })
+        .eq("bin_id", taskRow.bin_id);
+
+      if (binErr) {
+        console.warn("bins update warning:", binErr.message);
+      }
+    }
+  }
+
+  if (normalizedStatus === "DELIVERED") {
+    payload.delivered_at = new Date().toISOString();
+  }
+
+  if (normalizedStatus === "RECEIVED") {
+    payload.received_at = new Date().toISOString();
+  }
+
+  if (normalizedStatus === "RECYCLED") {
+    payload.recycled_at = new Date().toISOString();
   }
 
   const { data, error } = await supabase
@@ -178,7 +200,6 @@ exports.updateTripTaskStatus = async (id, status, user) => {
 
   const payload = {
     status: finalStatus,
-    updated_at: new Date().toISOString(),
   };
 
   if (normalizedStatus === "COMPLETED") {
