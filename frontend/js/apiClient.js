@@ -2,8 +2,8 @@ const API_BASE =
   window.location.hostname === "localhost" ||
   window.location.hostname === "127.0.0.1"
     ? "http://localhost:5000"
-    : "https://smartwaste-backend-xegw.onrender.com/";
-    
+    : "https://smartwaste-backend-xegw.onrender.com";
+
 function getToken() {
   return localStorage.getItem("token");
 }
@@ -77,9 +77,15 @@ async function parseResponse(res) {
   };
 }
 
+function buildUrl(url) {
+  const base = String(API_BASE || "").replace(/\/+$/, "");
+  const path = String(url || "").replace(/^\/+/, "");
+  return `${base}/${path}`;
+}
+
 async function request(url, options = {}) {
   try {
-    const res = await fetch(`${API_BASE}${url}`, options);
+    const res = await fetch(buildUrl(url), options);
     return await parseResponse(res);
   } catch (error) {
     return {
