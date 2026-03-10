@@ -41,7 +41,7 @@
     <div class="topbar">
       <div class="topbar-left">
         <h1>My Profile</h1>
-        <p class="sub">View your details, salary & change password</p>
+        <p class="sub">View your details, salary history & change password</p>
       </div>
 
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
@@ -62,7 +62,6 @@
       <h2>Account Details</h2>
 
       <div class="form" style="margin-top:12px;">
-
         <div class="full">
           <label class="field">
             <span>Full Name</span>
@@ -90,39 +89,78 @@
     </div>
 
     <div class="card" style="margin-top:14px;">
-      <h2>My Salary</h2>
-      <p class="sub">View your current salary details</p>
+      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+        <div>
+          <h2>My Salary</h2>
+          <p class="sub">View all month and year salary details</p>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn primary" type="button" id="filterSalaryBtn">Apply Filter</button>
+          <button class="btn" type="button" id="resetSalaryBtn">Reset</button>
+          <button class="btn" type="button" id="exportSalaryPdfBtn">Export PDF</button>
+        </div>
+      </div>
 
       <div class="form" style="margin-top:12px;">
         <label class="field">
           <span>Month</span>
-          <input id="salaryMonth" disabled value="-" />
+          <select id="salaryFilterMonth">
+            <option value="">All Months</option>
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
         </label>
 
         <label class="field">
-          <span>Total Waste Collected (kg)</span>
-          <input id="salaryKg" disabled value="0" />
-        </label>
-
-        <label class="field">
-          <span>Rate per Kg (₹)</span>
-          <input id="salaryRate" disabled value="0" />
-        </label>
-
-        <label class="field">
-          <span>Total Salary (₹)</span>
-          <input id="salaryAmount" disabled value="0" />
+          <span>Year</span>
+          <select id="salaryFilterYear">
+            <option value="">All Years</option>
+          </select>
         </label>
 
         <label class="field">
           <span>Status</span>
-          <input id="salaryStatus" disabled value="Pending" />
+          <select id="salaryFilterStatus">
+            <option value="">All Status</option>
+            <option value="Paid">Paid</option>
+            <option value="Pending">Pending</option>
+          </select>
         </label>
 
         <label class="field">
-          <span>Paid At</span>
-          <input id="salaryPaidAt" disabled value="-" />
+          <span>Total Records</span>
+          <input id="salaryTotalRecords" disabled value="0" />
         </label>
+      </div>
+
+      <div style="margin-top:16px; overflow-x:auto;">
+        <table class="table salary-table" id="salaryHistoryTable">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Year</th>
+              <th>Total Salary (₹)</th>
+              <th>Status</th>
+              <th>Paid At</th>
+            </tr>
+          </thead>
+          <tbody id="salaryHistoryBody">
+            <tr>
+              <td colspan="5" style="text-align:center;">No salary records found</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -141,7 +179,7 @@
           <input type="password" id="confirmNewPassword" placeholder="Re-enter new password" />
         </label>
 
-        <div class="full" style="display:flex; gap:10px; align-items:center;">
+        <div class="full" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
           <button class="btn primary" type="button" id="updatePasswordBtn">Update Password</button>
           <span id="msg" class="error"></span>
         </div>

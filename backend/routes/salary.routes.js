@@ -1,9 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const controller = require("../controllers/salary.controller");
+
+const salaryController = require("../controllers/salary.controller");
 const { requireAuth } = require("../middleware/auth.middleware");
 
-// get salary for logged-in user
-router.get("/my", requireAuth, controller.getMySalary);
+router.get("/my", requireAuth, salaryController.getMySalary);
+
+router.get("/my-history", requireAuth, salaryController.getMySalaryHistory);
+
+router.get("/export-pdf", requireAuth, salaryController.exportMySalaryPdf);
 
 module.exports = router;

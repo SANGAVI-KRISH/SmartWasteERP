@@ -4,6 +4,16 @@ function $(id) {
   return document.getElementById(id);
 }
 
+function getApiBaseUrl() {
+  const host = window.location.hostname;
+
+  if (host === "127.0.0.1" || host === "localhost") {
+    return "http://127.0.0.1:5000";
+  }
+
+  return "https://your-render-backend-url.onrender.com";
+}
+
 function toast(msg, ok = true) {
   const t = $("toast");
   if (!t) return alert(msg);
@@ -97,27 +107,165 @@ function formatPaidAt(v) {
   return d.toLocaleString();
 }
 
-function formatMonth(v) {
-  if (!v) return "-";
+function monthName(value) {
+  const map = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December"
+  };
 
-  const s = String(v).trim();
+  const n = Number(value);
+  if (map[n]) return map[n];
 
+  const s = String(value || "").trim();
   if (/^\d{4}-\d{2}$/.test(s)) {
     const [y, m] = s.split("-");
     const d = new Date(Number(y), Number(m) - 1, 1);
-    return d.toLocaleString(undefined, { month: "long", year: "numeric" });
+    return d.toLocaleString(undefined, { month: "long" });
   }
 
-  return s;
+  return s || "-";
 }
 
-function setSalaryFallback(statusText = "Not Available") {
-  setVal("salaryMonth", "-");
-  setVal("salaryKg", "0");
-  setVal("salaryRate", "0");
-  setVal("salaryAmount", "0");
-  setVal("salaryStatus", statusText);
-  setVal("salaryPaidAt", "-");
+function resolveYear(row) {
+  if (row?.year) return row.year;
+
+  const s = String(row?.month || "").trim();
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    return s.split("-")[0];
+  }
+
+  return "-";
+}
+
+function resolveMonth(row) {
+  if (row?.month_name) return row.month_name;
+  if (row?.month_num) return monthName(row.month_num);
+  if (row?.month_no) return monthName(row.month_no);
+
+  if (typeof row?.month === "number") return monthName(row.month);
+
+  const s = String(row?.month || "").trim();
+
+  if (/^\d{4}-\d{2}$/.test(s)) {
+    return monthName(s);
+  }
+
+  if (/^\d{1,2}$/.test(s)) {
+    return monthName(Number(s));
+  }
+
+  if (s) return s;
+
+  return "-";
+}
+
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getErrorMessage(res, fallback = "Something went wrong") {
+  return res?.error || res?.message || fallback;
+}
+
+function getSalaryAmount(row) {
+  if (row?.total_salary !== undefined && row?.total_salary !== null) {
+    return row.total_salary;
+  }
+  if (row?.salary !== undefined && row?.salary !== null) {
+    return row.salary;
+  }
+  return 0;
+}
+
+function getSalaryStatus(row) {
+  return row?.status || "Pending";
+}
+
+function getSalaryPaidAt(row) {
+  return row?.paid_at || row?.paidAt || null;
+}
+
+function setSalaryTableEmpty(message = "No salary records found") {
+  const tbody = $("salaryHistoryBody");
+  if (!tbody) return;
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="5" style="text-align:center;">${esc(message)}</td>
+    </tr>
+  `;
+
+  setVal("salaryTotalRecords", "0");
+}
+
+function renderSalaryTable(rows) {
+  const tbody = $("salaryHistoryBody");
+  if (!tbody) return;
+
+  const list = Array.isArray(rows) ? rows : [];
+  setVal("salaryTotalRecords", String(list.length));
+
+  if (!list.length) {
+    setSalaryTableEmpty("No salary records found");
+    return;
+  }
+
+  tbody.innerHTML = list
+    .map((row) => {
+      return `
+        <tr>
+          <td>${esc(resolveMonth(row))}</td>
+          <td>${esc(resolveYear(row))}</td>
+          <td>${esc(formatMoney(getSalaryAmount(row)))}</td>
+          <td>${esc(getSalaryStatus(row))}</td>
+          <td>${esc(formatPaidAt(getSalaryPaidAt(row)))}</td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function fillYearOptions() {
+  const el = $("salaryFilterYear");
+  if (!el) return;
+
+  const currentYear = new Date().getFullYear();
+  let html = `<option value="">All Years</option>`;
+
+  for (let year = currentYear + 1; year >= currentYear - 10; year--) {
+    html += `<option value="${year}">${year}</option>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function buildSalaryQuery() {
+  const params = new URLSearchParams();
+
+  const month = $("salaryFilterMonth")?.value || "";
+  const year = $("salaryFilterYear")?.value || "";
+  const status = $("salaryFilterStatus")?.value || "";
+
+  if (month) params.append("month", month);
+  if (year) params.append("year", year);
+  if (status) params.append("status", status);
+
+  return params.toString();
 }
 
 async function loadProfile() {
@@ -125,7 +273,7 @@ async function loadProfile() {
     const res = await apiGet("/api/profile/me");
 
     if (!res.ok) {
-      toast(res.message || "Failed to load profile", false);
+      toast(getErrorMessage(res, "Failed to load profile"), false);
       return null;
     }
 
@@ -145,33 +293,89 @@ async function loadProfile() {
   }
 }
 
-async function loadMySalary(profile) {
+async function loadSalaryHistory(showToastOnError = false) {
   try {
-    const role = String(profile?.role || "").toLowerCase();
+    const query = buildSalaryQuery();
+    const url = query
+      ? `/api/salary/my-history?${query}`
+      : "/api/salary/my-history";
 
-    if (!["worker", "driver"].includes(role)) {
-      setSalaryFallback("Not Applicable");
-      return;
-    }
-
-    const res = await apiGet("/api/salary/my");
+    const res = await apiGet(url);
 
     if (!res.ok) {
-      setSalaryFallback("Pending");
+      setSalaryTableEmpty(getErrorMessage(res, "No salary records found"));
+      if (showToastOnError) {
+        toast(getErrorMessage(res, "Failed to load salary history"), false);
+      }
       return;
     }
 
-    const row = res.data || {};
-
-    setVal("salaryMonth", formatMonth(row.month || "-"));
-    setVal("salaryKg", row.total_kg ?? 0);
-    setVal("salaryRate", formatMoney(row.rate ?? 0));
-    setVal("salaryAmount", formatMoney(row.salary ?? 0));
-    setVal("salaryStatus", row.status || "Pending");
-    setVal("salaryPaidAt", formatPaidAt(row.paid_at));
+    const rows = Array.isArray(res.data) ? res.data : [];
+    renderSalaryTable(rows);
   } catch (err) {
-    console.error("loadMySalary error:", err);
-    setSalaryFallback("Pending");
+    console.error("loadSalaryHistory error:", err);
+    setSalaryTableEmpty("No salary records found");
+    if (showToastOnError) {
+      toast("Failed to load salary history", false);
+    }
+  }
+}
+
+function resetSalaryFilters() {
+  setVal("salaryFilterMonth", "");
+  setVal("salaryFilterYear", "");
+  setVal("salaryFilterStatus", "");
+}
+
+async function exportSalaryPdf() {
+  const query = buildSalaryQuery();
+  const baseUrl = getApiBaseUrl();
+  const token = localStorage.getItem("token") || "";
+
+  const url = query
+    ? `${baseUrl}/api/salary/export-pdf?${query}`
+    : `${baseUrl}/api/salary/export-pdf`;
+
+  if (!token) {
+    toast("Please login again", false);
+    return;
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      let msg = "Failed to export PDF";
+      try {
+        const data = await res.json();
+        msg = getErrorMessage(data, msg);
+      } catch {
+        const text = await res.text();
+        if (text) msg = text;
+      }
+      throw new Error(msg);
+    }
+
+    const blob = await res.blob();
+    const fileUrl = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = fileUrl;
+    a.download = "salary-history.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(fileUrl);
+    toast("PDF downloaded ✅", true);
+  } catch (err) {
+    console.error("exportSalaryPdf error:", err);
+    toast(err.message || "Failed to export PDF", false);
   }
 }
 
@@ -213,8 +417,9 @@ async function changePassword() {
     });
 
     if (!res.ok) {
-      setMsg(res.message || "Failed to update password");
-      toast(res.message || "Failed to update password", false);
+      const msg = getErrorMessage(res, "Failed to update password");
+      setMsg(msg);
+      toast(msg, false);
       return;
     }
 
@@ -240,6 +445,18 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("logoutBtnSidebar")?.addEventListener("click", safeLogout);
   $("updatePasswordBtn")?.addEventListener("click", changePassword);
 
-  const profile = await loadProfile();
-  await loadMySalary(profile);
+  $("filterSalaryBtn")?.addEventListener("click", async () => {
+    await loadSalaryHistory(true);
+  });
+
+  $("resetSalaryBtn")?.addEventListener("click", async () => {
+    resetSalaryFilters();
+    await loadSalaryHistory();
+  });
+
+  $("exportSalaryPdfBtn")?.addEventListener("click", exportSalaryPdf);
+
+  fillYearOptions();
+  await loadProfile();
+  await loadSalaryHistory();
 });

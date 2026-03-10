@@ -9,10 +9,10 @@ async function getMyProfile(user) {
     .from("profiles")
     .select("id, full_name, email, role, area")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(error.message || "Failed to fetch profile");
   }
 
   if (!data) {
@@ -21,11 +21,11 @@ async function getMyProfile(user) {
 
   return {
     id: data.id,
-    name: data.full_name,
-    full_name: data.full_name,
-    email: data.email,
-    role: data.role,
-    area: data.area
+    name: data.full_name || "",
+    full_name: data.full_name || "",
+    email: data.email || "",
+    role: data.role || "",
+    area: data.area || ""
   };
 }
 
@@ -40,7 +40,7 @@ async function changeMyPassword(user, newPassword) {
     throw new Error("Password must be at least 6 characters");
   }
 
-  const { error } = await supabase.auth.admin.updateUserById(user.id, {
+  const { data, error } = await supabase.auth.admin.updateUserById(user.id, {
     password
   });
 
@@ -50,6 +50,7 @@ async function changeMyPassword(user, newPassword) {
 
   return {
     updated: true,
+    user_id: data?.user?.id || user.id,
     message: "Password updated successfully"
   };
 }

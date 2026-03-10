@@ -566,3 +566,50 @@ body.modal-open {
   border-radius: 999px;
   font-size: 12px;
 }
+
+.salary-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.salary-table thead th,
+.salary-table tbody td {
+  text-align: center;
+  vertical-align: middle;
+  padding: 18px 14px;
+}
+
+.salary-table thead th {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.salary-table tbody td {
+  white-space: nowrap;
+}
+
+.salary-table th:nth-child(1),
+.salary-table td:nth-child(1) {
+  width: 18%;
+}
+
+.salary-table th:nth-child(2),
+.salary-table td:nth-child(2) {
+  width: 12%;
+}
+
+.salary-table th:nth-child(3),
+.salary-table td:nth-child(3) {
+  width: 22%;
+}
+
+.salary-table th:nth-child(4),
+.salary-table td:nth-child(4) {
+  width: 18%;
+}
+
+.salary-table th:nth-child(5),
+.salary-table td:nth-child(5) {
+  width: 30%;
+}

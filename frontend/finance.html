@@ -4,236 +4,429 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Finance - Smart Waste ERP</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
-<div class="container">
+  <div class="container">
+    <aside class="sidebar">
+      <div class="brand">Smart Waste ERP</div>
 
-  <aside class="sidebar">
-    <div class="brand">Smart Waste ERP</div>
+      <div class="nav">
+        <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
+        <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-    <div class="nav">
-      <a class="nav-all" href="dashboard.html">🏠 Dashboard</a>
-      <a class="nav-all" href="map.html">📍 View Live Location</a>
-
-      <a class="nav-admin" href="users.html">👥 Users</a>
-      <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
-      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
-      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
-      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
-      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
-      <a class="nav-admin active" href="finance.html">💰 Finance</a>
-      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
-      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
-    </div>
-
-    <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
-  </aside>
-
-  <main class="main">
-    <div class="topbar">
-      <div class="topbar-left">
-        <h1 id="pageTitle">Finance Dashboard</h1>
-        <p class="sub" id="pageSub">Track total income, expenses, profit, rates and finance transactions.</p>
+        <a class="nav-admin" href="users.html">👥 Users</a>
+        <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
+        <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
+        <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
+        <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+        <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+        <a class="nav-admin active" href="finance.html">💰 Finance</a>
+        <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+        <a class="nav-admin nav-worker nav-driver nav-recycling" href="complaints.html">📝 Complaints</a>
       </div>
 
-      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
-        <a href="profile.html" title="My Profile">
-          <img
-            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            class="profile-icon"
-            alt="Profile"
-            style="cursor:pointer;"
-          />
-        </a>
+      <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
+    </aside>
 
-        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
-      </div>
-    </div>
-
-    <!-- Summary Cards -->
-    <div class="card">
-      <h2 style="margin-top:0;">Finance Summary</h2>
-
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
-        <div class="card" style="margin:0; padding:16px;">
-          <div class="sub" style="opacity:.8;">Total Income</div>
-          <div id="incomeCard" style="font-size:28px; font-weight:700; margin-top:8px;">₹0.00</div>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-left">
+          <h1 id="pageTitle">Finance Dashboard</h1>
+          <p class="sub" id="pageSub">
+            Admin can manage income, expenses, profit, waste rates and finance transactions.
+          </p>
         </div>
 
-        <div class="card" style="margin:0; padding:16px;">
-          <div class="sub" style="opacity:.8;">Total Expense</div>
-          <div id="expenseCard" style="font-size:28px; font-weight:700; margin-top:8px;">₹0.00</div>
-        </div>
+        <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+          <a href="profile.html" title="My Profile">
+            <img
+              src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+              class="profile-icon"
+              alt="Profile"
+              style="cursor:pointer;"
+            />
+          </a>
 
-        <div class="card" style="margin:0; padding:16px;">
-          <div class="sub" style="opacity:.8;">Profit</div>
-          <div id="profitCard" style="font-size:28px; font-weight:700; margin-top:8px;">₹0.00</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Add Expense -->
-    <div class="card" style="margin-top:14px;">
-      <h2 style="margin-top:0;">Add Expense</h2>
-
-      <div class="form">
-        <div>
-          <div class="label">Date</div>
-          <input type="date" id="expenseDate">
-        </div>
-
-        <div>
-          <div class="label">Category</div>
-          <select id="expenseCategory">
-            <option value="fuel">Fuel</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="salary">Salary</option>
-            <option value="repair">Repair</option>
-            <option value="misc">Misc</option>
-          </select>
-        </div>
-
-        <div>
-          <div class="label">Amount</div>
-          <input type="number" id="expenseAmount" placeholder="Eg: 1500" min="0" step="0.01">
-        </div>
-
-        <div class="full">
-          <div class="label">Description</div>
-          <input type="text" id="expenseDescription" placeholder="Eg: Truck diesel refill">
-        </div>
-
-        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button type="button" class="btn" id="saveExpenseBtn">Save Expense</button>
-          <button type="button" class="btn" id="clearExpenseBtn" style="opacity:.9;">Clear</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Add Rate -->
-    <div class="card" style="margin-top:14px;">
-      <h2 style="margin-top:0;">Waste Rate Management</h2>
-
-      <div class="form">
-        <div>
-          <div class="label">Waste Type</div>
-          <select id="rateWasteType">
-            <option value="Wet">Wet</option>
-            <option value="Dry">Dry</option>
-            <option value="Plastic">Plastic</option>
-          </select>
-        </div>
-
-        <div>
-          <div class="label">Rate Type</div>
-          <select id="rateType">
-            <option value="collection">Collection</option>
-            <option value="recycling">Recycling</option>
-          </select>
-        </div>
-
-        <div>
-          <div class="label">Rate per Kg</div>
-          <input type="number" id="ratePerKg" placeholder="Eg: 10" min="0" step="0.01">
-        </div>
-
-        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button type="button" class="btn" id="saveRateBtn">Save Rate</button>
-          <button type="button" class="btn" id="loadRatesBtn" style="opacity:.9;">Refresh Rates</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Rates Table -->
-    <div class="card" style="margin-top:14px;">
-      <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap;">
-        <h2 style="margin:0;">Saved Rates</h2>
-
-        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-          <select id="filterRateType">
-            <option value="">All Rate Types</option>
-            <option value="collection">Collection</option>
-            <option value="recycling">Recycling</option>
-          </select>
-
-          <select id="filterWasteType">
-            <option value="">All Waste Types</option>
-            <option value="Wet">Wet</option>
-            <option value="Dry">Dry</option>
-            <option value="Plastic">Plastic</option>
-          </select>
-
-          <button type="button" class="btn" id="filterRatesBtn">Filter Rates</button>
+          <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
         </div>
       </div>
 
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Waste Type</th>
-            <th>Rate Type</th>
-            <th>Rate / Kg</th>
-            <th>Created At</th>
-          </tr>
-        </thead>
-        <tbody id="ratesBody">
-          <tr><td colspan="4" style="opacity:.8;">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
+      <!-- Finance Summary -->
+      <div class="card">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+          <div>
+            <h2 style="margin:0;">Finance Summary</h2>
+            <div class="sub" style="margin-top:4px; opacity:.8;">
+              Overview of total income, total expense and current profit.
+            </div>
+          </div>
 
-    <!-- Transactions -->
-    <div class="card" style="margin-top:14px;">
-      <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap;">
-        <h2 style="margin:0;">Finance Transactions</h2>
+          <button type="button" class="btn" id="refreshSummaryBtn">Refresh Summary</button>
+        </div>
 
-        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-          <input id="searchTransactions" placeholder="Search date/type/category/description...">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px;">
+          <div class="card" style="margin:0; padding:16px;">
+            <div class="sub" style="opacity:.8;">Total Income</div>
+            <div id="incomeCard" style="font-size:28px; font-weight:700; margin-top:8px;">₹0.00</div>
+          </div>
 
-          <select id="filterTxnType">
-            <option value="">All Types</option>
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
-          </select>
+          <div class="card" style="margin:0; padding:16px;">
+            <div class="sub" style="opacity:.8;">Total Expense</div>
+            <div id="expenseCard" style="font-size:28px; font-weight:700; margin-top:8px;">₹0.00</div>
+          </div>
 
-          <input type="date" id="filterFromDate">
-          <input type="date" id="filterToDate">
-
-          <button type="button" class="btn" id="filterTxnBtn">Filter</button>
-          <button type="button" class="btn" id="refreshTxnBtn" style="opacity:.9;">Refresh</button>
+          <div class="card" style="margin:0; padding:16px;">
+            <div class="sub" style="opacity:.8;">Profit</div>
+            <div id="profitCard" style="font-size:28px; font-weight:700; margin-top:8px;">₹0.00</div>
+          </div>
         </div>
       </div>
 
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Type</th>
-            <th>Category</th>
-            <th>Waste Type</th>
-            <th>Qty (kg)</th>
-            <th>Rate / Kg</th>
-            <th>Amount</th>
-            <th>Description</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="transactionsBody">
-          <tr><td colspan="9" style="opacity:.8;">Loading...</td></tr>
-        </tbody>
-      </table>
+      <!-- Add Expense -->
+      <div class="card" style="margin-top:14px;">
+        <h2 style="margin-top:0;">Add Expense</h2>
+        <p class="sub" style="margin-top:-4px; margin-bottom:14px; opacity:.8;">
+          Admin can manually record operational expenses such as fuel, maintenance, salary and repairs.
+        </p>
 
-      <div class="sub" style="margin-top:10px; opacity:.75;">
-        ✅ Income comes from collection/recycling flow. Expenses can be added manually by admin.
+        <div class="form">
+          <div>
+            <div class="label">Date</div>
+            <input type="date" id="expenseDate" />
+          </div>
+
+          <div>
+            <div class="label">Category</div>
+            <select id="expenseCategory">
+              <option value="fuel">Fuel</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="salary">Salary</option>
+              <option value="repair">Repair</option>
+              <option value="misc">Misc</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="label">Amount</div>
+            <input
+              type="number"
+              id="expenseAmount"
+              placeholder="Eg: 1500"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div id="salaryFields" class="full" style="display:none;">
+            <div
+              style="
+                display:grid;
+                grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+                gap:14px;
+              "
+            >
+              <div>
+                <div class="label">Staff</div>
+                <select id="salaryStaff">
+                  <option value="">Select Staff</option>
+                </select>
+              </div>
+
+              <div>
+                <div class="label">Month</div>
+                <select id="salaryMonth">
+                  <option value="">Select Month</option>
+                  <option value="01">January</option>
+                  <option value="02">February</option>
+                  <option value="03">March</option>
+                  <option value="04">April</option>
+                  <option value="05">May</option>
+                  <option value="06">June</option>
+                  <option value="07">July</option>
+                  <option value="08">August</option>
+                  <option value="09">September</option>
+                  <option value="10">October</option>
+                  <option value="11">November</option>
+                  <option value="12">December</option>
+                </select>
+              </div>
+
+              <div>
+                <div class="label">Year</div>
+                <input
+                  type="number"
+                  id="salaryYear"
+                  min="2024"
+                  max="2100"
+                  placeholder="Eg: 2026"
+                />
+              </div>
+
+              <div>
+                <div class="label">Total Kg</div>
+                <input
+                  type="number"
+                  id="salaryTotalKg"
+                  placeholder="Eg: 250"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+
+              <div>
+                <div class="label">Rate</div>
+                <input
+                  type="number"
+                  id="salaryRate"
+                  placeholder="Eg: 20"
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="full">
+            <div class="label">Description</div>
+            <input
+              type="text"
+              id="expenseDescription"
+              placeholder="Eg: Truck diesel refill"
+            />
+          </div>
+
+          <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="button" class="btn" id="saveExpenseBtn">Save Expense</button>
+            <button type="button" class="btn" id="clearExpenseBtn" style="opacity:.9;">Clear</button>
+          </div>
+        </div>
       </div>
-    </div>
-  </main>
-</div>
 
-<div class="toast" id="toast"></div>
+      <!-- Waste Rate Management -->
+      <div class="card" style="margin-top:14px;">
+        <h2 style="margin-top:0;">Waste Rate Management</h2>
+        <p class="sub" style="margin-top:-4px; margin-bottom:14px; opacity:.8;">
+          Configure per-kg rates for collection and recycling by waste type.
+        </p>
 
-<script type="module" src="./js/finance.js"></script>
+        <div class="form">
+          <div>
+            <div class="label">Waste Type</div>
+            <select id="rateWasteType">
+              <option value="Wet">Wet</option>
+              <option value="Dry">Dry</option>
+              <option value="Plastic">Plastic</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="label">Rate Type</div>
+            <select id="rateType">
+              <option value="collection">Collection</option>
+              <option value="recycling">Recycling</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="label">Rate per Kg</div>
+            <input
+              type="number"
+              id="ratePerKg"
+              placeholder="Eg: 10"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div class="full" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="button" class="btn" id="saveRateBtn">Save Rate</button>
+            <button type="button" class="btn" id="loadRatesBtn" style="opacity:.9;">Refresh Rates</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rates Table -->
+      <div class="card" style="margin-top:14px;">
+        <div
+          style="
+            display:grid;
+            grid-template-columns:1fr auto;
+            gap:16px;
+            align-items:start;
+            margin-bottom:14px;
+          "
+        >
+          <div>
+            <h2 style="margin:0;">Saved Rates</h2>
+            <div class="sub" style="margin-top:4px; opacity:.8;">
+              View waste-wise configured finance rates.
+            </div>
+          </div>
+
+          <div
+            style="
+              display:grid;
+              grid-template-columns:repeat(3, minmax(180px, auto));
+              gap:12px;
+              align-items:center;
+              justify-content:end;
+            "
+          >
+            <select id="filterRateType" style="min-width:180px;">
+              <option value="">All Rate Types</option>
+              <option value="collection">Collection</option>
+              <option value="recycling">Recycling</option>
+            </select>
+
+            <select id="filterWasteType" style="min-width:180px;">
+              <option value="">All Waste Types</option>
+              <option value="Wet">Wet</option>
+              <option value="Dry">Dry</option>
+              <option value="Plastic">Plastic</option>
+            </select>
+
+            <button
+              type="button"
+              class="btn"
+              id="filterRatesBtn"
+              style="height:44px; white-space:nowrap;"
+            >
+              Filter Rates
+            </button>
+          </div>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Waste Type</th>
+              <th>Rate Type</th>
+              <th>Rate / Kg</th>
+              <th>Created At</th>
+            </tr>
+          </thead>
+          <tbody id="ratesBody">
+            <tr>
+              <td colspan="4" style="opacity:.8;">Loading...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Transactions -->
+      <div class="card" style="margin-top:14px;">
+        <div
+          style="
+            display:grid;
+            grid-template-columns:1fr;
+            gap:16px;
+            margin-bottom:14px;
+          "
+        >
+          <div
+            style="
+              display:flex;
+              justify-content:space-between;
+              align-items:flex-start;
+              gap:12px;
+              flex-wrap:wrap;
+            "
+          >
+            <div>
+              <h2 style="margin:0;">Finance Transactions</h2>
+              <div class="sub" style="margin-top:4px; opacity:.8;">
+                Track all income and expense entries recorded in the finance ledger.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              class="btn"
+              id="exportPdfBtn"
+              style="height:44px; white-space:nowrap;"
+            >
+              Export PDF
+            </button>
+          </div>
+
+          <div
+            style="
+              display:grid;
+              grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+              gap:12px;
+              align-items:end;
+            "
+          >
+            <input
+              id="searchTransactions"
+              placeholder="Search date / type / category / description..."
+              style="grid-column:1 / -1;"
+            />
+
+            <select id="filterTxnType">
+              <option value="">All Types</option>
+              <option value="income">Income</option>
+              <option value="expense">Expense</option>
+            </select>
+
+            <input type="date" id="filterFromDate" />
+            <input type="date" id="filterToDate" />
+
+            <button
+              type="button"
+              class="btn"
+              id="filterTxnBtn"
+              style="height:44px; white-space:nowrap;"
+            >
+              Filter
+            </button>
+
+            <button
+              type="button"
+              class="btn"
+              id="refreshTxnBtn"
+              style="height:44px; white-space:nowrap; opacity:.9;"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div id="transactionsPrintArea">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Category</th>
+                <th>Waste Type</th>
+                <th>Qty (kg)</th>
+                <th>Rate / Kg</th>
+                <th>Amount</th>
+                <th>Description</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="transactionsBody">
+              <tr>
+                <td colspan="9" style="opacity:.8;">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sub" style="margin-top:10px; opacity:.75;">
+          Showing latest 10 records only in screen. Export PDF includes all matching finance transactions.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script type="module" src="./js/finance.js"></script>
 </body>
 </html>
