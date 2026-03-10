@@ -77,7 +77,7 @@ async function checkExistingSession() {
 
   if (!token) return false;
 
-  const res = await apiGet("/api/auth/me");
+  const res = await apiGet("/api/me");
 
   if (!res.ok) {
     clearSession();
@@ -125,7 +125,7 @@ async function signIn() {
   }
 
   try {
-    const res = await apiPost("/api/auth/login", { email, password });
+    const res = await apiPost("/api/login", { email, password });
 
     if (!res.ok) {
       setMessage(res.message || "Login failed");
