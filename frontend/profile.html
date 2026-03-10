@@ -19,22 +19,25 @@
 
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
+      <a class="nav-worker nav-driver" href="tasks.html">📋 My Tasks</a>
 
-      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
-      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
-      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a class="nav-admin nav-worker nav-driver" href="collection.html">🗑️ Collection</a>
+      <a class="nav-admin nav-worker nav-driver" href="bins.html">🧺 Bin Status</a>
 
-      <a class="nav-recycling nav-admin" href="recycling.html">♻️ Recycling</a>
+      <a class="nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <a class="nav-admin nav-recycling" href="recycling.html">♻️ Recycling</a>
+
       <a class="nav-admin" href="finance.html">💰 Finance</a>
 
-      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
+      <a class="nav-all" href="report.html">📊 Reports</a>
 
-      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
+      <a class="nav-all" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
+
 
   <main class="main">
 
@@ -58,10 +61,13 @@
       </div>
     </div>
 
+
+    <!-- Account Details -->
     <div class="card">
       <h2>Account Details</h2>
 
       <div class="form" style="margin-top:12px;">
+
         <div class="full">
           <label class="field">
             <span>Full Name</span>
@@ -85,10 +91,14 @@
           <span>Area</span>
           <input id="profileArea" disabled />
         </label>
+
       </div>
     </div>
 
+
+    <!-- Salary Section -->
     <div class="card" style="margin-top:14px;">
+
       <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
         <div>
           <h2>My Salary</h2>
@@ -96,13 +106,14 @@
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn primary" type="button" id="filterSalaryBtn">Apply Filter</button>
-          <button class="btn" type="button" id="resetSalaryBtn">Reset</button>
-          <button class="btn" type="button" id="exportSalaryPdfBtn">Export PDF</button>
+          <button class="btn primary" id="filterSalaryBtn">Apply Filter</button>
+          <button class="btn" id="resetSalaryBtn">Reset</button>
+          <button class="btn" id="exportSalaryPdfBtn">Export PDF</button>
         </div>
       </div>
 
       <div class="form" style="margin-top:12px;">
+
         <label class="field">
           <span>Month</span>
           <select id="salaryFilterMonth">
@@ -142,6 +153,7 @@
           <span>Total Records</span>
           <input id="salaryTotalRecords" disabled value="0" />
         </label>
+
       </div>
 
       <div style="margin-top:16px; overflow-x:auto;">
@@ -155,6 +167,7 @@
               <th>Paid At</th>
             </tr>
           </thead>
+
           <tbody id="salaryHistoryBody">
             <tr>
               <td colspan="5" style="text-align:center;">No salary records found</td>
@@ -162,13 +175,17 @@
           </tbody>
         </table>
       </div>
+
     </div>
 
+
+    <!-- Change Password -->
     <div class="card" style="margin-top:14px;">
       <h2>Change Password</h2>
       <p class="sub">Enter a new password and update</p>
 
       <div class="form">
+
         <label class="field full">
           <span>New Password</span>
           <input type="password" id="newPassword" placeholder="Enter new password" />
@@ -180,9 +197,10 @@
         </label>
 
         <div class="full" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <button class="btn primary" type="button" id="updatePasswordBtn">Update Password</button>
+          <button class="btn primary" id="updatePasswordBtn">Update Password</button>
           <span id="msg" class="error"></span>
         </div>
+
       </div>
     </div>
 
@@ -191,6 +209,8 @@
 
 <div class="toast" id="toast"></div>
 
+<script type="module" src="./js/app.js"></script>
 <script type="module" src="./js/profile.js"></script>
+
 </body>
 </html>

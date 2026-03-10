@@ -1,7 +1,4 @@
 // frontend/js/app.js
-// Shared frontend helpers after moving page-specific logic to individual files.
-// This file no longer uses Supabase directly.
-
 import { apiGet } from "./apiClient.js";
 
 function $(id) {
@@ -40,54 +37,59 @@ function normalizeRole(roleRaw) {
 }
 
 function getStoredRole() {
-  const fixed = normalizeRole(localStorage.getItem("role"));
-  if (fixed) localStorage.setItem("role", fixed);
+  const fixed = normalizeRole(
+    localStorage.getItem("role") || sessionStorage.getItem("role")
+  );
+
+  if (fixed) {
+    localStorage.setItem("role", fixed);
+    sessionStorage.setItem("role", fixed);
+  }
+
   return fixed;
 }
 
 const ROLE_ACCESS = {
   admin: [
     "dashboard.html",
+    "map.html",
     "users.html",
-    "tasks.html",
     "collection.html",
     "bins.html",
-    "recycling.html",
     "staff_vehicle.html",
-    "report.html",
-    "map.html",
-    "profile.html",
-    "complaints.html"
-  ],
-  recycling_manager: [
-    "dashboard.html",
-    "tasks.html",
     "recycling.html",
+    "finance.html",
     "report.html",
-    "map.html",
+    "complaints.html",
     "profile.html"
   ],
   worker: [
     "dashboard.html",
+    "map.html",
     "tasks.html",
     "collection.html",
     "bins.html",
-    "staff_vehicle.html",
     "report.html",
-    "map.html",
-    "profile.html",
-    "complaints.html"
+    "complaints.html",
+    "profile.html"
   ],
   driver: [
     "dashboard.html",
+    "map.html",
     "tasks.html",
     "collection.html",
     "bins.html",
-    "staff_vehicle.html",
     "report.html",
+    "complaints.html",
+    "profile.html"
+  ],
+  recycling_manager: [
+    "dashboard.html",
     "map.html",
-    "profile.html",
-    "complaints.html"
+    "recycling.html",
+    "report.html",
+    "complaints.html",
+    "profile.html"
   ]
 };
 
@@ -104,6 +106,7 @@ function isPublicAuthPage() {
 function clearSessionStorage() {
   ["user_id", "token", "role", "area", "full_name", "user"].forEach((k) => {
     localStorage.removeItem(k);
+    sessionStorage.removeItem(k);
   });
 }
 
@@ -120,45 +123,55 @@ function setActiveNav() {
     return href === current;
   });
 
-  if (match) match.classList.add("active");
+  if (match && !match.classList.contains("role-hidden")) {
+    match.classList.add("active");
+  }
 }
 
-function applyRoleMenu() {
-  const role = getStoredRole();
+function getRoleMenuElements() {
+  return document.querySelectorAll(
+    ".nav-all,.nav-admin,.nav-worker,.nav-driver,.nav-recycling"
+  );
+}
 
-  document
-    .querySelectorAll(".nav-admin,.nav-worker,.nav-driver,.nav-recycling")
-    .forEach((el) => {
-      el.style.display = "none";
-    });
-
-  document.querySelectorAll(".nav-all").forEach((el) => {
-    el.style.display = "block";
+function hideAllMenus() {
+  getRoleMenuElements().forEach((el) => {
+    el.classList.add("role-hidden");
   });
+}
+
+function showMenus(selector) {
+  document.querySelectorAll(selector).forEach((el) => {
+    el.classList.remove("role-hidden");
+  });
+}
+
+function applyRoleMenu(roleArg = null) {
+  const role = normalizeRole(roleArg || getStoredRole());
+
+  hideAllMenus();
+  showMenus(".nav-all");
 
   if (!role) return;
 
   if (role === "admin") {
-    document
-      .querySelectorAll(".nav-admin,.nav-worker,.nav-driver,.nav-recycling")
-      .forEach((el) => {
-        el.style.display = "block";
-      });
+    showMenus(".nav-admin");
     return;
   }
 
-  const cls =
-    role === "recycling_manager"
-      ? "nav-recycling"
-      : role === "worker"
-        ? "nav-worker"
-        : role === "driver"
-          ? "nav-driver"
-          : "nav-" + role;
+  if (role === "worker") {
+    showMenus(".nav-worker");
+    return;
+  }
 
-  document.querySelectorAll("." + cls).forEach((el) => {
-    el.style.display = "block";
-  });
+  if (role === "driver") {
+    showMenus(".nav-driver");
+    return;
+  }
+
+  if (role === "recycling_manager") {
+    showMenus(".nav-recycling");
+  }
 }
 
 function initProfileMenu() {
@@ -178,31 +191,62 @@ function initProfileMenu() {
   });
 }
 
+function hideSidebarUntilReady() {
+  document.querySelectorAll(".sidebar").forEach((el) => {
+    el.style.visibility = "hidden";
+  });
+}
+
+function showSidebarWhenReady() {
+  document.querySelectorAll(".sidebar").forEach((el) => {
+    el.style.visibility = "visible";
+  });
+}
+
 async function protectPage(allowedRoles = null, opts = {}) {
   const { silent = false } = opts || {};
   const page = getCurrentPageName();
 
   if (isPublicAuthPage()) {
-    const token = localStorage.getItem("token");
+    const token =
+      localStorage.getItem("token") || sessionStorage.getItem("token");
     return !!token;
   }
 
-  const token = localStorage.getItem("token");
+  const token =
+    localStorage.getItem("token") || sessionStorage.getItem("token");
+
   if (!token) {
     clearSessionStorage();
     if (!silent) window.location.replace("index.html");
     return false;
   }
 
-  const me = await apiGet("/api/auth/me");
-  if (!me.ok) {
+  let me;
+  try {
+    me = await apiGet("/api/auth/me");
+  } catch {
     clearSessionStorage();
     if (!silent) window.location.replace("index.html");
     return false;
   }
 
-  const role = normalizeRole(me?.data?.role || localStorage.getItem("role"));
-  if (role) localStorage.setItem("role", role);
+  if (!me?.ok) {
+    clearSessionStorage();
+    if (!silent) window.location.replace("index.html");
+    return false;
+  }
+
+  const role = normalizeRole(
+    me?.data?.role ||
+      localStorage.getItem("role") ||
+      sessionStorage.getItem("role")
+  );
+
+  if (role) {
+    localStorage.setItem("role", role);
+    sessionStorage.setItem("role", role);
+  }
 
   if (Array.isArray(allowedRoles) && allowedRoles.length > 0) {
     const normalizedAllowed = allowedRoles.map(normalizeRole);
@@ -210,24 +254,28 @@ async function protectPage(allowedRoles = null, opts = {}) {
       if (!silent) window.location.replace("dashboard.html");
       return false;
     }
-    return true;
+    return role;
   }
 
   const allowedPages = ROLE_ACCESS[role] || [];
-  if (allowedPages.length && !allowedPages.includes(page)) {
+  if (allowedPages.length > 0 && !allowedPages.includes(page)) {
     if (!silent) window.location.replace("dashboard.html");
     return false;
   }
 
-  return true;
+  return role || true;
 }
 
 function logout() {
   clearSessionStorage();
-  window.location.href = "index.html";
+  window.location.replace("index.html");
 }
 
-// expose globals for pages that still call through window
+// Hide sidebar as early as possible
+if (!isPublicAuthPage()) {
+  hideSidebarUntilReady();
+}
+
 window.toast = toast;
 window.normalizeRole = normalizeRole;
 window.getStoredRole = getStoredRole;
@@ -239,28 +287,36 @@ window.logout = logout;
 
 document.addEventListener("DOMContentLoaded", async () => {
   const page = getCurrentPageName();
-  if (page === "index.html" || page === "register.html" || page === "") return;
+
+  if (page === "index.html" || page === "register.html" || page === "") {
+    return;
+  }
+
+  hideSidebarUntilReady();
+  hideAllMenus();
+
+  let role = null;
 
   try {
-    applyRoleMenu();
-  } catch {}
+    const result = await protectPage();
 
-  try {
-    await protectPage();
-  } catch {}
+    if (!result) return;
 
-  try {
+    role = typeof result === "string" ? result : getStoredRole();
+
+    applyRoleMenu(role);
     initProfileMenu();
-  } catch {}
-
-  try {
     setActiveNav();
-  } catch {}
 
-  try {
     document.getElementById("logoutBtnTop")?.addEventListener("click", logout);
-    document.getElementById("logoutBtnSidebar")?.addEventListener("click", logout);
-  } catch {}
+    document
+      .getElementById("logoutBtnSidebar")
+      ?.addEventListener("click", logout);
+
+    showSidebarWhenReady();
+  } catch {
+    return;
+  }
 });
 
 export {

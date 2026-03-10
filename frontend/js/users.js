@@ -39,6 +39,27 @@ function safeLogout() {
 
 let USERS_CACHE = [];
 
+function getRoleOrder(role) {
+  const order = {
+    admin: 1,
+    recycling_manager: 2,
+    worker: 3,
+    driver: 4
+  };
+  return order[String(role || "").toLowerCase()] || 999;
+}
+
+function sortUsersByRole(users) {
+  return [...users].sort((a, b) => {
+    const roleDiff = getRoleOrder(a.role) - getRoleOrder(b.role);
+    if (roleDiff !== 0) return roleDiff;
+
+    const nameA = String(a.name || a.email || "").toLowerCase();
+    const nameB = String(b.name || b.email || "").toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+}
+
 async function loadUsers() {
   const res = await apiGet("/api/users");
   if (!res.ok) {
@@ -46,7 +67,7 @@ async function loadUsers() {
     return;
   }
 
-  USERS_CACHE = res.data || [];
+  USERS_CACHE = sortUsersByRole(res.data || []);
   renderUsers();
 }
 
@@ -57,25 +78,32 @@ function renderUsers() {
   let rows = [...USERS_CACHE];
 
   if (q) {
-    rows = rows.filter(u =>
-      `${u.email || ""} ${u.role || ""} ${u.area || ""} ${u.name || ""}`.toLowerCase().includes(q)
+    rows = rows.filter(
+      (u) =>
+        `${u.email || ""} ${u.role || ""} ${u.area || ""} ${u.name || ""}`
+          .toLowerCase()
+          .includes(q)
     );
   }
+
+  rows = sortUsersByRole(rows);
 
   if (!rows.length) {
     body.innerHTML = `<tr><td colspan="4" style="opacity:.8;">No users found.</td></tr>`;
     return;
   }
 
-  body.innerHTML = rows.map(u => `
+  body.innerHTML = rows
+    .map(
+      (u) => `
     <tr>
       <td>${esc(u.email || "-")}</td>
       <td>
         <select data-role="${esc(u.id)}">
+          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
+          <option value="recycling_manager" ${u.role === "recycling_manager" ? "selected" : ""}>Recycling Manager</option>
           <option value="worker" ${u.role === "worker" ? "selected" : ""}>Worker</option>
           <option value="driver" ${u.role === "driver" ? "selected" : ""}>Driver</option>
-          <option value="recycling_manager" ${u.role === "recycling_manager" ? "selected" : ""}>Recycling Manager</option>
-          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option>
         </select>
       </td>
       <td>
@@ -85,9 +113,11 @@ function renderUsers() {
         <button class="btn" data-save="${esc(u.id)}">Save</button>
       </td>
     </tr>
-  `).join("");
+  `
+    )
+    .join("");
 
-  body.querySelectorAll("[data-save]").forEach(btn => {
+  body.querySelectorAll("[data-save]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-save");
       await saveUser(id);

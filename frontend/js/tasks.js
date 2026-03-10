@@ -196,14 +196,14 @@ function askWasteType(defaultValue = "Dry") {
   Creates the collection entry automatically for pickup tasks.
   First tries /api/collection and then /api/collections.
 */
-async function createCollectionEntryForPickup(task, quantityKg) {
+async function createCollectionEntryForPickup(task, quantityKg, wasteType) {
   const payload = {
     task_id: task.taskId || task.id || "",
     staff_task_id: task.raw?.staff_task_id || null,
     bin_id: task.raw?.bin_id || task.raw?.binId || task.raw?.bin_code || "",
     area: task.raw?.area || "",
     quantity_kg: quantityKg,
-    waste_type: task.raw?.waste_type || "Dry",
+    waste_type: wasteType,
     date: new Date().toISOString().slice(0, 10)
   };
 
@@ -330,7 +330,10 @@ async function renderMyTasksTable() {
         const qty = askCollectedQuantity();
         if (qty == null) return;
 
-        const collectionRes = await createCollectionEntryForPickup(task, qty);
+        const wasteType = askWasteType(task.raw?.waste_type || "Dry");
+        if (wasteType == null) return;
+
+        const collectionRes = await createCollectionEntryForPickup(task, qty, wasteType);
         if (!collectionRes.ok) {
           toast(collectionRes.message || "Failed to create collection entry");
           return;

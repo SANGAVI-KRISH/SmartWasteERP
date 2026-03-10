@@ -19,28 +19,34 @@
 
       <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <a class="nav-worker nav-driver nav-admin" href="tasks.html">📋 My Tasks</a>
+      <a class="nav-worker nav-driver" href="tasks.html">📋 My Tasks</a>
 
-      <a class="nav-worker nav-driver nav-admin" href="collection.html">🗑️ Collection</a>
-      <a class="nav-worker nav-driver nav-admin" href="bins.html">🧺 Bin Status</a>
-      <a class="nav-worker nav-driver nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+      <a class="nav-admin nav-worker nav-driver" href="collection.html">🗑️ Collection</a>
+      <a class="nav-admin nav-worker nav-driver" href="bins.html">🧺 Bin Status</a>
 
-      <a class="nav-recycling nav-admin active" href="recycling.html">♻️ Recycling</a>
+      <a class="nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+
+      <a class="nav-admin nav-recycling active" href="recycling.html">♻️ Recycling</a>
+
       <a class="nav-admin" href="finance.html">💰 Finance</a>
-      <a class="nav-worker nav-driver nav-recycling nav-admin" href="report.html">📊 Reports</a>
 
-      <a class="nav-admin nav-worker nav-driver" href="complaints.html">📝 Complaints</a>
+      <a class="nav-all" href="report.html">📊 Reports</a>
+
+      <a class="nav-all" href="complaints.html">📝 Complaints</a>
     </div>
 
     <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
   </aside>
+
 
   <main class="main">
 
     <div class="topbar">
       <div class="topbar-left">
         <h1 id="pageTitle">Recycling Management</h1>
-        <p class="sub" id="pageSub">Record how much waste was recycled vs sent to landfill.</p>
+        <p class="sub" id="pageSub">
+          Record how much waste was recycled vs sent to landfill.
+        </p>
       </div>
 
       <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
@@ -52,14 +58,18 @@
             style="cursor:pointer;"
           />
         </a>
+
         <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
       </div>
     </div>
 
+
+    <!-- New Recycling Entry -->
     <div class="card">
       <h2 style="margin-top:0;">New Recycling Entry</h2>
 
       <div class="form">
+
         <div>
           <div class="label">Date</div>
           <input type="date" id="rdate">
@@ -75,7 +85,10 @@
         </div>
 
         <div class="full">
-          <div class="label">Select Collection Record (auto-fill Input kg & Waste Type)</div>
+          <div class="label">
+            Select Collection Record (auto-fill Input kg & Waste Type)
+          </div>
+
           <select id="collectedTaskSelect">
             <option value="">-- Select Collection Record --</option>
           </select>
@@ -108,6 +121,7 @@
         <div class="full">
           <button type="button" class="btn" id="saveRecycleBtn">Save Entry</button>
         </div>
+
       </div>
 
       <p class="sub" style="margin-top:10px;">
@@ -115,7 +129,10 @@
       </p>
     </div>
 
+
+    <!-- Recycling Records -->
     <div class="card" style="margin-top:14px;">
+
       <div style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap;">
         <h2 style="margin:0;">Recycling Records</h2>
 
@@ -140,10 +157,12 @@
             <th>Action</th>
           </tr>
         </thead>
+
         <tbody id="recyclingBody"></tbody>
       </table>
 
       <div class="sub" id="recyclingHint" style="margin-top:10px; display:none;"></div>
+
     </div>
 
   </main>
@@ -151,6 +170,8 @@
 
 <div class="toast" id="toast"></div>
 
+<script type="module" src="./js/app.js"></script>
 <script type="module" src="./js/recycling.js"></script>
+
 </body>
 </html>

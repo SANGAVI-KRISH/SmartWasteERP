@@ -59,6 +59,17 @@ function normalizeMessage(res, fallback) {
   return fallback;
 }
 
+async function fetchComplaints(q = "") {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+
+  const url = params.toString()
+    ? `/api/complaints?${params.toString()}`
+    : "/api/complaints";
+
+  return await apiGet(url);
+}
+
 async function createComplaint() {
   const payload = {
     citizen_name: ($("cname")?.value || "").trim(),
@@ -107,17 +118,11 @@ async function renderComplaints() {
   if (!body) return;
 
   const q = ($("searchComplaints")?.value || "").trim();
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
 
   body.innerHTML = `<tr><td colspan="7" style="opacity:.8;">Loading complaints...</td></tr>`;
 
   try {
-    const url = params.toString()
-      ? `/api/complaints?${params.toString()}`
-      : "/api/complaints";
-
-    const res = await apiGet(url);
+    const res = await fetchComplaints(q);
 
     if (!res?.ok) {
       body.innerHTML = `<tr><td colspan="7" style="opacity:.8;">${esc(normalizeMessage(res, "Failed to load complaints."))}</td></tr>`;
@@ -250,7 +255,10 @@ async function markComplaintResolved(id, btn) {
 }
 
 async function deleteComplaint(id, btn) {
-  if (!id) return;
+  if (!id) {
+    toast("Invalid complaint id.", false);
+    return;
+  }
 
   const role = getRole();
   if (role !== "admin") {
@@ -269,7 +277,10 @@ async function deleteComplaint(id, btn) {
   }
 
   try {
+    console.log("Deleting complaint id:", id);
+
     const res = await apiDelete(`/api/complaints/${id}`);
+    console.log("Delete response:", res);
 
     if (!res?.ok) {
       const msg = normalizeMessage(res, "Failed to delete complaint.");
@@ -281,6 +292,31 @@ async function deleteComplaint(id, btn) {
 
       console.error("Complaint delete failed:", res);
       return toast(msg, false);
+    }
+
+    await renderComplaints();
+
+    const searchValue = ($("searchComplaints")?.value || "").trim();
+    const refreshed = await fetchComplaints(searchValue);
+
+    if (!refreshed?.ok) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
+      return toast("Delete response received, but refresh failed.", false);
+    }
+
+    const rows = Array.isArray(refreshed.data) ? refreshed.data : [];
+    const stillExists = rows.some((row) => String(row.id) === String(id));
+
+    if (stillExists) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
+      console.error("Complaint still exists after delete:", id, rows);
+      return toast("Complaint was not actually deleted. Check backend delete API.", false);
     }
 
     toast("Complaint deleted ✅");

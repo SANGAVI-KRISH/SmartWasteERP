@@ -1,8 +1,9 @@
 const API_BASE =
-  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1"
     ? "http://localhost:5000"
-    : "http://localhost:5000"; // change this to your deployed backend URL later
-
+    : "https://smartwaste-backend-xegw.onrender.com/";
+    
 function getToken() {
   return localStorage.getItem("token");
 }
@@ -14,6 +15,7 @@ function clearStoredSession() {
     localStorage.removeItem("session");
     localStorage.removeItem("smartwaste_session");
     localStorage.removeItem("cloudcrafter_session");
+    localStorage.removeItem("user");
   } catch {}
 }
 
@@ -51,14 +53,11 @@ async function parseResponse(res) {
       data?.error ||
       `Request failed with status ${res.status}`;
 
-    // ✅ Logout only for real authentication failure
     if (res.status === 401) {
       clearStoredSession();
-      //redirectToLogin();
+      // redirectToLogin();
     }
 
-    // ✅ Do NOT logout on 403
-    // 403 means user is logged in but not permitted for this action
     return {
       ok: false,
       status: res.status,
