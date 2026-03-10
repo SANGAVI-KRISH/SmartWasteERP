@@ -58,10 +58,11 @@ exports.updateComplaintStatus = async (req, res) => {
 
 exports.deleteComplaint = async (req, res) => {
   try {
-    await service.deleteComplaint(req.params.id, req.user);
+    const data = await service.deleteComplaint(req.params.id, req.user);
 
     return res.json({
       ok: true,
+      data,
       message: "Complaint deleted successfully"
     });
   } catch (err) {

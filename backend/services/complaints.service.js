@@ -125,6 +125,12 @@ exports.updateComplaintStatus = async (id, status, user) => {
     throw err;
   }
 
+  if (!data) {
+    const err = new Error("Complaint not found");
+    err.status = 404;
+    throw err;
+  }
+
   return data;
 };
 
@@ -132,6 +138,12 @@ exports.deleteComplaint = async (id, user) => {
   if (!user?.id) {
     const err = new Error("Unauthorized");
     err.status = 401;
+    throw err;
+  }
+
+  if (!id) {
+    const err = new Error("Complaint id is required");
+    err.status = 400;
     throw err;
   }
 
@@ -145,11 +157,17 @@ exports.deleteComplaint = async (id, user) => {
 
   const { data: existing, error: fetchError } = await supabase
     .from("complaints")
-    .select("id,status")
+    .select("id, status")
     .eq("id", id)
     .single();
 
   if (fetchError) {
+    if (fetchError.code === "PGRST116") {
+      const err = new Error("Complaint not found");
+      err.status = 404;
+      throw err;
+    }
+
     const err = new Error(fetchError.message);
     err.status = 500;
     throw err;
@@ -167,16 +185,23 @@ exports.deleteComplaint = async (id, user) => {
     throw err;
   }
 
-  const { error } = await supabase
+  const { data: deletedRows, error: deleteError } = await supabase
     .from("complaints")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .select("id, status");
 
-  if (error) {
-    const err = new Error(error.message);
+  if (deleteError) {
+    const err = new Error(deleteError.message);
     err.status = 500;
     throw err;
   }
 
-  return true;
+  if (!deletedRows || deletedRows.length === 0) {
+    const err = new Error("Complaint was not deleted");
+    err.status = 500;
+    throw err;
+  }
+
+  return deletedRows[0];
 };
