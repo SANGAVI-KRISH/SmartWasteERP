@@ -5,17 +5,25 @@ const API_BASE =
     : "https://smartwaste-backend-xegw.onrender.com";
 
 function getToken() {
-  return localStorage.getItem("token");
+  return localStorage.getItem("token") || sessionStorage.getItem("token");
 }
 
 function clearStoredSession() {
   try {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("session");
-    localStorage.removeItem("smartwaste_session");
-    localStorage.removeItem("cloudcrafter_session");
-    localStorage.removeItem("user");
+    [
+      "token",
+      "role",
+      "session",
+      "smartwaste_session",
+      "cloudcrafter_session",
+      "user",
+      "user_id",
+      "area",
+      "full_name"
+    ].forEach((key) => {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    });
   } catch {}
 }
 
@@ -54,8 +62,19 @@ async function parseResponse(res) {
       `Request failed with status ${res.status}`;
 
     if (res.status === 401) {
-      clearStoredSession();
-      // redirectToLogin();
+      const msg = String(message || "").toLowerCase();
+
+      const shouldClearSession =
+        msg.includes("invalid or expired token") ||
+        msg.includes("invalid token") ||
+        msg.includes("expired token") ||
+        msg.includes("jwt expired") ||
+        msg.includes("missing authorization token");
+
+      if (shouldClearSession) {
+        clearStoredSession();
+        // redirectToLogin();
+      }
     }
 
     return {
@@ -150,3 +169,5 @@ export async function apiPostForm(url, formData) {
 export function getApiBase() {
   return API_BASE;
 }
+
+export { getToken, clearStoredSession, redirectToLogin };

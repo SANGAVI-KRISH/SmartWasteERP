@@ -1,4 +1,3 @@
-// frontend/js/app.js
 import { apiGet } from "./apiClient.js";
 
 function $(id) {
@@ -104,7 +103,17 @@ function isPublicAuthPage() {
 }
 
 function clearSessionStorage() {
-  ["user_id", "token", "role", "area", "full_name", "user"].forEach((k) => {
+  [
+    "user_id",
+    "token",
+    "role",
+    "area",
+    "full_name",
+    "user",
+    "session",
+    "smartwaste_session",
+    "cloudcrafter_session"
+  ].forEach((k) => {
     localStorage.removeItem(k);
     sessionStorage.removeItem(k);
   });
@@ -217,28 +226,38 @@ async function protectPage(allowedRoles = null, opts = {}) {
     localStorage.getItem("token") || sessionStorage.getItem("token");
 
   if (!token) {
-    clearSessionStorage();
     if (!silent) window.location.replace("index.html");
     return false;
   }
 
   let me;
   try {
-    me = await apiGet("/api/auth/me");
+    me = await apiGet("/api/me");
   } catch {
-    clearSessionStorage();
     if (!silent) window.location.replace("index.html");
     return false;
   }
 
   if (!me?.ok) {
-    clearSessionStorage();
-    if (!silent) window.location.replace("index.html");
-    return false;
+    const storedRole = getStoredRole();
+
+    if (!storedRole) {
+      if (!silent) window.location.replace("index.html");
+      return false;
+    }
+
+    const fallbackPages = ROLE_ACCESS[storedRole] || [];
+    if (fallbackPages.length > 0 && !fallbackPages.includes(page)) {
+      if (!silent) window.location.replace("dashboard.html");
+      return false;
+    }
+
+    return storedRole;
   }
 
   const role = normalizeRole(
     me?.data?.role ||
+      me?.data?.user?.role ||
       localStorage.getItem("role") ||
       sessionStorage.getItem("role")
   );
@@ -271,7 +290,6 @@ function logout() {
   window.location.replace("index.html");
 }
 
-// Hide sidebar as early as possible
 if (!isPublicAuthPage()) {
   hideSidebarUntilReady();
 }
