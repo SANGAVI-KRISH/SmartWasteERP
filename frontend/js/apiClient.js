@@ -24,12 +24,20 @@ function clearStoredSession() {
       localStorage.removeItem(key);
       sessionStorage.removeItem(key);
     });
-  } catch {}
+  } catch (err) {
+    console.warn("Failed to clear session storage:", err);
+  }
 }
 
 function redirectToLogin() {
   const path = window.location.pathname.toLowerCase();
-  if (!path.endsWith("index.html") && !path.endsWith("/")) {
+
+  const isLoginPage =
+    path.endsWith("/") ||
+    path.endsWith("/index.html") ||
+    path === "/index.html";
+
+  if (!isLoginPage) {
     setTimeout(() => {
       window.location.href = "index.html";
     }, 100);
@@ -51,7 +59,7 @@ async function parseResponse(res) {
 
   try {
     data = await res.json();
-  } catch {
+  } catch (err) {
     data = null;
   }
 
@@ -73,6 +81,7 @@ async function parseResponse(res) {
 
       if (shouldClearSession) {
         clearStoredSession();
+        // Uncomment this if you want auto redirect on token expiry
         // redirectToLogin();
       }
     }
@@ -86,7 +95,10 @@ async function parseResponse(res) {
   }
 
   if (data && typeof data === "object" && "ok" in data) {
-    return data;
+    return {
+      ...data,
+      status: res.status
+    };
   }
 
   return {
@@ -104,9 +116,14 @@ function buildUrl(url) {
 
 async function request(url, options = {}) {
   try {
-    const res = await fetch(buildUrl(url), options);
+    const res = await fetch(buildUrl(url), {
+      ...options
+    });
+
     return await parseResponse(res);
   } catch (error) {
+    console.error("API request failed:", error);
+
     return {
       ok: false,
       status: 0,

@@ -93,13 +93,18 @@ const ROLE_ACCESS = {
 };
 
 function getCurrentPageName() {
-  const p = (window.location.pathname || "").split("/").pop() || "";
-  return p || "dashboard.html";
+  const path = window.location.pathname || "";
+  const file = path.split("/").pop() || "";
+  return file || "index.html";
 }
 
 function isPublicAuthPage() {
-  const p = getCurrentPageName();
+  const p = getCurrentPageName().toLowerCase();
   return p === "" || p === "index.html" || p === "register.html";
+}
+
+function getStoredToken() {
+  return localStorage.getItem("token") || sessionStorage.getItem("token");
 }
 
 function clearSessionStorage() {
@@ -117,6 +122,10 @@ function clearSessionStorage() {
     localStorage.removeItem(k);
     sessionStorage.removeItem(k);
   });
+}
+
+function redirectTo(page) {
+  window.location.replace(page);
 }
 
 function setActiveNav() {
@@ -184,8 +193,8 @@ function applyRoleMenu(roleArg = null) {
 }
 
 function initProfileMenu() {
-  const btn = document.getElementById("profileBtn");
-  const menu = document.getElementById("profileDropdown");
+  const btn = $("profileBtn");
+  const menu = $("profileDropdown");
   if (!btn || !menu) return;
 
   btn.addEventListener("click", (e) => {
@@ -217,38 +226,36 @@ async function protectPage(allowedRoles = null, opts = {}) {
   const page = getCurrentPageName();
 
   if (isPublicAuthPage()) {
-    const token =
-      localStorage.getItem("token") || sessionStorage.getItem("token");
-    return !!token;
+    return !!getStoredToken();
   }
 
-  const token =
-    localStorage.getItem("token") || sessionStorage.getItem("token");
+  const token = getStoredToken();
 
   if (!token) {
-    if (!silent) window.location.replace("index.html");
+    if (!silent) redirectTo("index.html");
     return false;
   }
 
-  let me;
+  let me = null;
+
   try {
     me = await apiGet("/api/me");
   } catch {
-    if (!silent) window.location.replace("index.html");
-    return false;
+    me = null;
   }
 
   if (!me?.ok) {
     const storedRole = getStoredRole();
 
     if (!storedRole) {
-      if (!silent) window.location.replace("index.html");
+      clearSessionStorage();
+      if (!silent) redirectTo("index.html");
       return false;
     }
 
     const fallbackPages = ROLE_ACCESS[storedRole] || [];
     if (fallbackPages.length > 0 && !fallbackPages.includes(page)) {
-      if (!silent) window.location.replace("dashboard.html");
+      if (!silent) redirectTo("dashboard.html");
       return false;
     }
 
@@ -262,15 +269,19 @@ async function protectPage(allowedRoles = null, opts = {}) {
       sessionStorage.getItem("role")
   );
 
-  if (role) {
-    localStorage.setItem("role", role);
-    sessionStorage.setItem("role", role);
+  if (!role) {
+    clearSessionStorage();
+    if (!silent) redirectTo("index.html");
+    return false;
   }
+
+  localStorage.setItem("role", role);
+  sessionStorage.setItem("role", role);
 
   if (Array.isArray(allowedRoles) && allowedRoles.length > 0) {
     const normalizedAllowed = allowedRoles.map(normalizeRole);
     if (!normalizedAllowed.includes(role)) {
-      if (!silent) window.location.replace("dashboard.html");
+      if (!silent) redirectTo("dashboard.html");
       return false;
     }
     return role;
@@ -278,16 +289,16 @@ async function protectPage(allowedRoles = null, opts = {}) {
 
   const allowedPages = ROLE_ACCESS[role] || [];
   if (allowedPages.length > 0 && !allowedPages.includes(page)) {
-    if (!silent) window.location.replace("dashboard.html");
+    if (!silent) redirectTo("dashboard.html");
     return false;
   }
 
-  return role || true;
+  return role;
 }
 
 function logout() {
   clearSessionStorage();
-  window.location.replace("index.html");
+  redirectTo("index.html");
 }
 
 if (!isPublicAuthPage()) {
@@ -313,27 +324,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   hideSidebarUntilReady();
   hideAllMenus();
 
-  let role = null;
-
   try {
     const result = await protectPage();
 
     if (!result) return;
 
-    role = typeof result === "string" ? result : getStoredRole();
+    const role = typeof result === "string" ? result : getStoredRole();
 
     applyRoleMenu(role);
     initProfileMenu();
     setActiveNav();
 
-    document.getElementById("logoutBtnTop")?.addEventListener("click", logout);
-    document
-      .getElementById("logoutBtnSidebar")
-      ?.addEventListener("click", logout);
+    $("logoutBtnTop")?.addEventListener("click", logout);
+    $("logoutBtnSidebar")?.addEventListener("click", logout);
 
     showSidebarWhenReady();
-  } catch {
-    return;
+  } catch (err) {
+    console.error("App init failed:", err);
+    clearSessionStorage();
+    redirectTo("index.html");
   }
 });
 
