@@ -3,7 +3,7 @@
 Smart Waste ERP is a **role-based waste management system** designed to streamline municipal waste operations.  
 It helps manage waste collection, bin monitoring, recycling, staff and vehicle management, complaints, finance tracking, and salary management through a centralized dashboard.
 
-🔗 **Live Demo:** https://smartwaste-erp.netlify.app/  
+🔗 **Live Demo:** https://smart-waste-erp.vercel.app/  
 💻 **GitHub:** https://github.com/SANGAVI-KRISH
 
 ---
@@ -72,44 +72,9 @@ Supabase Database & Authentication
 
 | Component | Platform |
 |----------|---------|
-| Frontend | Netlify |
+| Frontend | Vercel |
 | Backend | Render |
 | Database | Supabase |
-
----
-
-# 📁 Project Structure
-
-```
-SmartWasteERP
-│
-├── frontend
-│   ├── dashboard.html
-│   ├── profile.html
-│   ├── users.html
-│   ├── collection.html
-│   ├── bins.html
-│   ├── tasks.html
-│   ├── staff_vehicle.html
-│   ├── recycling.html
-│   ├── finance.html
-│   ├── report.html
-│   ├── complaints.html
-│   ├── map.html
-│   ├── style.css
-│   └── js
-│       ├── apiClient.js
-│       ├── app.js
-│       ├── dashboard.js
-│       ├── profile.js
-│
-└── backend
-    ├── server.js
-    ├── controllers
-    ├── routes
-    ├── middleware
-    └── package.json
-```
 
 ---
 
