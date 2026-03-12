@@ -61,6 +61,7 @@ const supabaseAuth =
 const ALLOWED_ORIGINS = [
   "https://smartwaste-erp.netlify.app",
   "https://smart-waste-erp.netlify.app/",
+  "https://smart-waste-erp.vercel.app",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
   "http://localhost:3000",
