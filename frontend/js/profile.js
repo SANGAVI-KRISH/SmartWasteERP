@@ -328,8 +328,8 @@ async function exportSalaryPdf() {
     localStorage.getItem("token") || sessionStorage.getItem("token") || "";
 
   const url = query
-    ? `${baseUrl}/api/salary/export_pdf?${query}`
-    : `${baseUrl}/api/salary/export_pdf`;
+    ? `${baseUrl}/api/salary/export-pdf?${query}`
+    : `${baseUrl}/api/salary/export-pdf`;
 
   if (!token) {
     toast("Please login again", false);
