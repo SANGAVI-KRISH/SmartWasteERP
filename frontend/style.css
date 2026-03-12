@@ -58,7 +58,6 @@ a {
 
 /* ===================== SIDEBAR ===================== */
 .sidebar {
-  visibility: hidden;
   width: 260px;
   min-height: 100vh;
   height: 100vh;

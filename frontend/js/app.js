@@ -94,7 +94,8 @@ const ROLE_ACCESS = {
 
 function getCurrentPageName() {
   const path = window.location.pathname || "";
-  const file = path.split("/").pop() || "";
+  const clean = path.split("?")[0].split("#")[0];
+  const file = clean.split("/").pop() || "";
   return file || "index.html";
 }
 
@@ -209,18 +210,6 @@ function initProfileMenu() {
   });
 }
 
-function hideSidebarUntilReady() {
-  document.querySelectorAll(".sidebar").forEach((el) => {
-    el.style.visibility = "hidden";
-  });
-}
-
-function showSidebarWhenReady() {
-  document.querySelectorAll(".sidebar").forEach((el) => {
-    el.style.visibility = "visible";
-  });
-}
-
 async function protectPage(allowedRoles = null, opts = {}) {
   const { silent = false } = opts || {};
   const page = getCurrentPageName();
@@ -301,10 +290,6 @@ function logout() {
   redirectTo("index.html");
 }
 
-if (!isPublicAuthPage()) {
-  hideSidebarUntilReady();
-}
-
 window.toast = toast;
 window.normalizeRole = normalizeRole;
 window.getStoredRole = getStoredRole;
@@ -321,8 +306,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  hideSidebarUntilReady();
-  hideAllMenus();
+  const storedRole = getStoredRole();
+
+  if (storedRole) {
+    applyRoleMenu(storedRole);
+  } else {
+    hideAllMenus();
+    showMenus(".nav-all");
+  }
+
+  setActiveNav();
+  initProfileMenu();
+
+  $("logoutBtnTop")?.addEventListener("click", logout);
+  $("logoutBtnSidebar")?.addEventListener("click", logout);
 
   try {
     const result = await protectPage();
@@ -332,13 +329,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const role = typeof result === "string" ? result : getStoredRole();
 
     applyRoleMenu(role);
-    initProfileMenu();
     setActiveNav();
-
-    $("logoutBtnTop")?.addEventListener("click", logout);
-    $("logoutBtnSidebar")?.addEventListener("click", logout);
-
-    showSidebarWhenReady();
   } catch (err) {
     console.error("App init failed:", err);
     clearSessionStorage();

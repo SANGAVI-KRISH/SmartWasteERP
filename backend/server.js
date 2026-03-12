@@ -58,39 +58,65 @@ const supabaseAuth =
    CORS
 -------------------------- */
 
-const ALLOWED_ORIGINS = [
+const EXACT_ALLOWED_ORIGINS = [
   "https://smartwaste-erp.netlify.app",
-  "https://smart-waste-erp.netlify.app/",
+  "https://smart-waste-erp.netlify.app",
   "https://smart-waste-erp.vercel.app",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
   "http://localhost:3000",
-  "http://127.0.0.1:3000"
+  "http://127.0.0.1:3000",
+  "http://localhost:5000",
+  "http://127.0.0.1:5000"
 ];
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+
+  const cleanOrigin = String(origin).replace(/\/$/, "");
+
+  if (EXACT_ALLOWED_ORIGINS.includes(cleanOrigin)) {
+    return true;
+  }
+
+  const localhostPattern = /^http:\/\/(127\.0\.0\.1|localhost):\d+$/;
+  if (localhostPattern.test(cleanOrigin)) {
+    return true;
+  }
+
+  const vercelPreviewPattern =
+    /^https:\/\/[a-z0-9-]+-sangavi-ks-projects\.vercel\.app$/i;
+  if (vercelPreviewPattern.test(cleanOrigin)) {
+    return true;
+  }
+
+  const vercelGitPreviewPattern =
+    /^https:\/\/smart-waste-erp-git-[a-z0-9-]+-sangavi-ks-projects\.vercel\.app$/i;
+  if (vercelGitPreviewPattern.test(cleanOrigin)) {
+    return true;
+  }
+
+  return false;
+}
 
 const corsOptions = {
   origin: (origin, cb) => {
-
-    if (!origin) return cb(null, true);
-
-    const cleanOrigin = origin.replace(/\/$/, "");
-
-    const isLocalhost = /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(cleanOrigin);
-
-    if (ALLOWED_ORIGINS.includes(cleanOrigin) || isLocalhost) {
+    if (isAllowedOrigin(origin)) {
       return cb(null, true);
     }
 
+    const cleanOrigin = String(origin || "").replace(/\/$/, "");
     console.warn("❌ CORS blocked:", cleanOrigin);
     return cb(new Error(`CORS blocked for origin: ${cleanOrigin}`));
   },
   credentials: true,
-  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization"]
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Content-Disposition"]
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 /* -------------------------
    BODY PARSING
@@ -103,39 +129,36 @@ app.use(express.urlencoded({ extended: true }));
    HELPERS
 -------------------------- */
 
-const ALLOWED_ROLES = ["admin","worker","driver","recycling_manager"];
+const ALLOWED_ROLES = ["admin", "worker", "driver", "recycling_manager"];
 
 function normalizeRole(role) {
   return String(role || "").trim().toLowerCase();
 }
 
-function requireSupabase(req,res,next) {
-
+function requireSupabase(req, res, next) {
   if (!supabaseAdmin || !supabaseAuth) {
     return res.status(500).json({
-      ok:false,
-      message:"Backend misconfigured. Check Supabase environment variables."
+      ok: false,
+      message: "Backend misconfigured. Check Supabase environment variables."
     });
   }
 
   next();
 }
 
-function authMiddleware(req,res,next) {
-
+function authMiddleware(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
 
   if (!token) {
     return res.status(401).json({
-      ok:false,
-      message:"Missing authorization token"
+      ok: false,
+      message: "Missing authorization token"
     });
   }
 
   try {
-
-    const decoded = jwt.verify(token,JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
 
     req.user = {
       id: decoded.id,
@@ -146,31 +169,27 @@ function authMiddleware(req,res,next) {
     };
 
     next();
-
   } catch (e) {
-
     return res.status(401).json({
-      ok:false,
-      message:"Invalid or expired token"
+      ok: false,
+      message: "Invalid or expired token"
     });
-
   }
-
 }
 
 /* -------------------------
    HEALTH ROUTES
 -------------------------- */
 
-app.get("/",(req,res)=>{
+app.get("/", (req, res) => {
   res.send("Smart Waste ERP Backend Running 🚀");
 });
 
-app.get("/api/health",(req,res)=>{
+app.get("/api/health", (req, res) => {
   res.json({
-    ok:true,
-    message:"Backend is healthy",
-    time:new Date().toISOString()
+    ok: true,
+    message: "Backend is healthy",
+    time: new Date().toISOString()
   });
 });
 
@@ -178,77 +197,71 @@ app.get("/api/health",(req,res)=>{
    LOGIN
 -------------------------- */
 
-app.post("/api/login", requireSupabase, async (req,res)=>{
+app.post("/api/login", requireSupabase, async (req, res) => {
+  try {
+    let { email, password } = req.body;
 
-  try{
+    email = String(email || "").trim().toLowerCase();
 
-    let { email,password } = req.body;
-
-    email = String(email||"").trim().toLowerCase();
-
-    const { data,error } = await supabaseAuth.auth.signInWithPassword({
+    const { data, error } = await supabaseAuth.auth.signInWithPassword({
       email,
       password
     });
 
-    if(error || !data?.user){
-
+    if (error || !data?.user) {
       return res.status(401).json({
-        ok:false,
-        message:error?.message || "Login failed"
+        ok: false,
+        message: error?.message || "Login failed"
       });
-
     }
 
-    const { data:profile } = await supabaseAdmin
+    const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("*")
-      .eq("id",data.user.id)
+      .eq("id", data.user.id)
       .single();
 
-    const token = jwt.sign({
-        id:data.user.id,
-        email:data.user.email,
-        role:profile.role,
-        name:profile.full_name,
-        area:profile.area
+    const token = jwt.sign(
+      {
+        id: data.user.id,
+        email: data.user.email,
+        role: profile.role,
+        name: profile.full_name,
+        area: profile.area
       },
       JWT_SECRET,
-      { expiresIn:"7d" }
+      { expiresIn: "7d" }
     );
 
     res.json({
-      ok:true,
-      data:{
+      ok: true,
+      data: {
         token,
-        role:profile.role,
-        user:{
-          id:data.user.id,
-          email:data.user.email,
-          role:profile.role,
-          name:profile.full_name,
-          area:profile.area
+        role: profile.role,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          role: profile.role,
+          name: profile.full_name,
+          area: profile.area
         }
       }
     });
-
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e.message });
   }
-  catch(e){
-    res.status(500).json({ ok:false,message:e.message });
-  }
-
 });
 
 /* -------------------------
    USER
 -------------------------- */
 
-app.get("/api/me",authMiddleware,(req,res)=>{
+app.get("/api/me", authMiddleware, (req, res) => {
   res.json({
-    ok:true,
-    data:{
-      user:req.user,
-      role:req.user.role
+    ok: true,
+    data: {
+      user: req.user,
+      role: req.user.role
     }
   });
 });
@@ -257,30 +270,30 @@ app.get("/api/me",authMiddleware,(req,res)=>{
    ROUTES
 -------------------------- */
 
-app.use("/api/dashboard",dashboardRoutes);
-app.use("/api/auth",authRoutes);
-app.use("/api/map",mapRoutes);
-app.use("/api/profile",profileRoutes);
-app.use("/api/recycling",recyclingRoutes);
-app.use("/api/report",reportRoutes);
-app.use("/api/staff-vehicle",staffVehicleRoutes);
-app.use("/api/tasks",tasksRoutes);
-app.use("/api/users",usersRoutes);
-app.use("/api/bins",binsRoutes);
-app.use("/api/collection",collectionRoutes);
-app.use("/api/complaints",complaintsRoutes);
-app.use("/api/finance",financeRoutes);
-app.use("/api/salary",salaryRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/map", mapRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/recycling", recyclingRoutes);
+app.use("/api/report", reportRoutes);
+app.use("/api/staff-vehicle", staffVehicleRoutes);
+app.use("/api/tasks", tasksRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/bins", binsRoutes);
+app.use("/api/collection", collectionRoutes);
+app.use("/api/complaints", complaintsRoutes);
+app.use("/api/finance", financeRoutes);
+app.use("/api/salary", salaryRoutes);
 
 /* -------------------------
    404
 -------------------------- */
 
-app.use((req,res)=>{
+app.use((req, res) => {
   res.status(404).json({
-    ok:false,
-    message:"Route not found",
-    path:req.originalUrl
+    ok: false,
+    message: "Route not found",
+    path: req.originalUrl
   });
 });
 
@@ -288,29 +301,27 @@ app.use((req,res)=>{
    ERROR HANDLER
 -------------------------- */
 
-app.use((err,req,res,next)=>{
+app.use((err, req, res, next) => {
+  console.error("❌ Server error:", err);
 
-  console.error("❌ Server error:",err);
-
-  if(err.message.includes("CORS")){
+  if (err.message && err.message.includes("CORS")) {
     return res.status(403).json({
-      ok:false,
-      message:err.message
+      ok: false,
+      message: err.message
     });
   }
 
   res.status(500).json({
-    ok:false,
-    message:err.message || "Internal server error"
+    ok: false,
+    message: err.message || "Internal server error"
   });
-
 });
 
 /* -------------------------
    START SERVER
 -------------------------- */
 
-app.listen(PORT,()=>{
+app.listen(PORT, () => {
   console.log(`✅ Backend running on ${PORT}`);
   console.log(`✅ JWT secret loaded: ${Boolean(JWT_SECRET)}`);
 });
