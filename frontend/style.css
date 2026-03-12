@@ -129,6 +129,42 @@ a {
 }
 
 /* ===================== ROLE VISIBILITY ===================== */
+/* common navs always visible */
+.nav-all {
+  display: flex;
+}
+
+/* role based navs hidden by default */
+.nav-admin,
+.nav-worker,
+.nav-driver,
+.nav-recycling {
+  display: none !important;
+}
+
+/* admin */
+html[data-role="admin"] .nav-admin,
+html[data-role="admin"] .nav-worker,
+html[data-role="admin"] .nav-driver,
+html[data-role="admin"] .nav-recycling {
+  display: flex !important;
+}
+
+/* worker */
+html[data-role="worker"] .nav-worker {
+  display: flex !important;
+}
+
+/* driver */
+html[data-role="driver"] .nav-driver {
+  display: flex !important;
+}
+
+/* recycling manager */
+html[data-role="recycling_manager"] .nav-recycling {
+  display: flex !important;
+}
+
 .role-hidden {
   display: none !important;
 }

@@ -1,17 +1,11 @@
-import { apiGet, apiPatch } from "./apiClient.js";
+import { apiGet, apiPatch, getApiBase } from "./apiClient.js";
 
 function $(id) {
   return document.getElementById(id);
 }
 
 function getApiBaseUrl() {
-  const host = window.location.hostname;
-
-  if (host === "127.0.0.1" || host === "localhost") {
-    return "http://127.0.0.1:5000";
-  }
-
-  return "https://your-render-backend-url.onrender.com";
+  return getApiBase();
 }
 
 function toast(msg, ok = true) {
@@ -330,11 +324,12 @@ function resetSalaryFilters() {
 async function exportSalaryPdf() {
   const query = buildSalaryQuery();
   const baseUrl = getApiBaseUrl();
-  const token = localStorage.getItem("token") || "";
+  const token =
+    localStorage.getItem("token") || sessionStorage.getItem("token") || "";
 
   const url = query
-    ? `${baseUrl}/api/salary/export-pdf?${query}`
-    : `${baseUrl}/api/salary/export-pdf`;
+    ? `${baseUrl}/api/salary/export_pdf?${query}`
+    : `${baseUrl}/api/salary/export_pdf`;
 
   if (!token) {
     toast("Please login again", false);

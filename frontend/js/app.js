@@ -129,6 +129,11 @@ function redirectTo(page) {
   window.location.replace(page);
 }
 
+function applyRoleMenu(roleArg = null) {
+  const role = normalizeRole(roleArg || getStoredRole());
+  document.documentElement.setAttribute("data-role", role || "");
+}
+
 function setActiveNav() {
   const current = getCurrentPageName();
 
@@ -139,57 +144,12 @@ function setActiveNav() {
   const links = Array.from(document.querySelectorAll(".sidebar .nav a[href]"));
   const match = links.find((a) => {
     const href = (a.getAttribute("href") || "").split("?")[0].split("#")[0];
-    return href === current;
+    const isVisible = window.getComputedStyle(a).display !== "none";
+    return href === current && isVisible;
   });
 
-  if (match && !match.classList.contains("role-hidden")) {
+  if (match) {
     match.classList.add("active");
-  }
-}
-
-function getRoleMenuElements() {
-  return document.querySelectorAll(
-    ".nav-all,.nav-admin,.nav-worker,.nav-driver,.nav-recycling"
-  );
-}
-
-function hideAllMenus() {
-  getRoleMenuElements().forEach((el) => {
-    el.classList.add("role-hidden");
-  });
-}
-
-function showMenus(selector) {
-  document.querySelectorAll(selector).forEach((el) => {
-    el.classList.remove("role-hidden");
-  });
-}
-
-function applyRoleMenu(roleArg = null) {
-  const role = normalizeRole(roleArg || getStoredRole());
-
-  hideAllMenus();
-  showMenus(".nav-all");
-
-  if (!role) return;
-
-  if (role === "admin") {
-    showMenus(".nav-admin");
-    return;
-  }
-
-  if (role === "worker") {
-    showMenus(".nav-worker");
-    return;
-  }
-
-  if (role === "driver") {
-    showMenus(".nav-driver");
-    return;
-  }
-
-  if (role === "recycling_manager") {
-    showMenus(".nav-recycling");
   }
 }
 
@@ -287,6 +247,7 @@ async function protectPage(allowedRoles = null, opts = {}) {
 
 function logout() {
   clearSessionStorage();
+  document.documentElement.setAttribute("data-role", "");
   redirectTo("index.html");
 }
 
@@ -307,14 +268,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const storedRole = getStoredRole();
-
-  if (storedRole) {
-    applyRoleMenu(storedRole);
-  } else {
-    hideAllMenus();
-    showMenus(".nav-all");
-  }
-
+  applyRoleMenu(storedRole);
   setActiveNav();
   initProfileMenu();
 
@@ -333,6 +287,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch (err) {
     console.error("App init failed:", err);
     clearSessionStorage();
+    document.documentElement.setAttribute("data-role", "");
     redirectTo("index.html");
   }
 });
