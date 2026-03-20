@@ -4,112 +4,285 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard - Smart Waste ERP</title>
+
   <script>
-  (function () {
-    try {
-      var role =
-        localStorage.getItem("role") ||
-        sessionStorage.getItem("role") ||
-        "";
-      role = String(role).trim().toLowerCase().replace(/\s+/g, "_");
-      document.documentElement.setAttribute("data-role", role);
-    } catch (e) {
-      document.documentElement.setAttribute("data-role", "");
-    }
-  })();
-</script>
-  <link rel="stylesheet" href="style.css">
+    (function () {
+      try {
+        var role =
+          localStorage.getItem("role") ||
+          sessionStorage.getItem("role") ||
+          "";
+        role = String(role).trim().toLowerCase().replace(/\s+/g, "_");
+        document.documentElement.setAttribute("data-role", role);
+      } catch (e) {
+        document.documentElement.setAttribute("data-role", "");
+      }
+    })();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
-<div class="container">
+  <div class="container">
+    <aside class="sidebar">
+      <div class="brand">Smart Waste ERP</div>
 
-  <aside class="sidebar">
-    <div class="brand">Smart Waste ERP</div>
+      <div class="nav">
+        <a class="nav-all active" href="dashboard.html">🏠 Dashboard</a>
+        <a class="nav-all" href="map.html">📍 View Live Location</a>
 
-    <div class="nav">
-      <a class="nav-all active" href="dashboard.html">🏠 Dashboard</a>
-      <a class="nav-all" href="map.html">📍 View Live Location</a>
+        <a class="nav-admin" href="users.html">👥 Users</a>
 
-      <a class="nav-admin" href="users.html">👥 Users</a>
+        <a class="nav-worker nav-driver" href="tasks.html">📋 My Tasks</a>
 
-      <a class="nav-worker nav-driver" href="tasks.html">📋 My Tasks</a>
+        <a class="nav-admin nav-worker nav-driver" href="collection.html">🗑️ Collection</a>
+        <a class="nav-admin nav-worker nav-driver" href="bins.html">🧺 Bin Status</a>
 
-      <a class="nav-admin nav-worker nav-driver" href="collection.html">🗑️ Collection</a>
-      <a class="nav-admin nav-worker nav-driver" href="bins.html">🧺 Bin Status</a>
+        <a class="nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
 
-      <a class="nav-admin" href="staff_vehicle.html">🚛 Staff & Vehicle</a>
+        <a class="nav-admin nav-recycling" href="recycling.html">♻️ Recycling</a>
 
-      <a class="nav-admin nav-recycling" href="recycling.html">♻️ Recycling</a>
+        <a class="nav-admin" href="finance.html">💰 Finance</a>
 
-      <a class="nav-admin" href="finance.html">💰 Finance</a>
+        <a class="nav-all" href="report.html">📊 Reports</a>
 
-      <a class="nav-all" href="report.html">📊 Reports</a>
-
-      <a class="nav-all" href="complaints.html">📝 Complaints</a>
-    </div>
-
-    <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
-  </aside>
-
-  <main class="main">
-
-    <div class="topbar">
-      <div class="topbar-left">
-        <h1 id="pageTitle">Dashboard</h1>
-        <p class="sub" id="pageSub">Live overview of collection, bins and recycling</p>
+        <a class="nav-all" href="complaints.html">📝 Complaints</a>
       </div>
 
-      <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
-        <a href="profile.html" title="My Profile">
-          <img
-            src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-            class="profile-icon"
-            alt="Profile"
-            style="cursor:pointer;"
-          />
-        </a>
+      <button type="button" class="btn red" id="logoutBtnSidebar">Logout</button>
+    </aside>
 
-        <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
+    <main class="main">
+      <div class="topbar">
+        <div class="topbar-left">
+          <h1 id="pageTitle">Dashboard</h1>
+          <p class="sub" id="pageSub">
+            Live overview of collection, bins, recycling, revenue and district-wise statistics
+          </p>
+        </div>
+
+        <div class="topbar-right" style="display:flex; gap:10px; align-items:center;">
+          <a href="profile.html" title="My Profile">
+            <img
+              src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+              class="profile-icon"
+              alt="Profile"
+              style="cursor:pointer;"
+            />
+          </a>
+
+          <button type="button" class="btn red" id="logoutBtnTop">Logout</button>
+        </div>
       </div>
-    </div>
 
-    <div class="grid">
-      <div class="card">
-        <div class="label">Total Waste Collected</div>
-        <div class="value" id="kpiCollected">0 kg</div>
+      <!-- MAIN KPI CARDS -->
+      <div class="grid">
+        <div class="card">
+          <div class="label">Total Waste Collected</div>
+          <div class="value" id="kpiCollected">0 kg</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Full Bins</div>
+          <div class="value" id="kpiFullBins">0</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Total Recycled</div>
+          <div class="value" id="kpiRecycled">0 kg</div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="label">Full Bins</div>
-        <div class="value" id="kpiFullBins">0</div>
+      <div class="grid" style="margin-top:14px;">
+        <div class="card">
+          <div class="label">Trips Completed</div>
+          <div class="value" id="kpiTripsCompleted">0</div>
+        </div>
+
+        <div class="card">
+          <div class="label">Revenue Generated</div>
+          <div class="value" id="kpiRevenueGenerated">₹0</div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="label">Total Recycled</div>
-        <div class="value" id="kpiRecycled">0 kg</div>
+      <!-- SUMMARY STATISTICS -->
+      <div class="card" style="margin-top:14px;">
+        <h2>Statistics Analysis</h2>
+        <p class="sub">
+          Overall performance and operational insights generated from database records.
+        </p>
+
+        <div class="grid" style="margin-top:14px;">
+          <div class="card">
+            <div class="label">Pending Complaints</div>
+            <div class="value" id="kpiPendingComplaints">0</div>
+          </div>
+
+          <div class="card">
+            <div class="label">Resolved Complaints</div>
+            <div class="value" id="kpiResolvedComplaints">0</div>
+          </div>
+
+          <div class="card">
+            <div class="label">Number of Workers</div>
+            <div class="value" id="kpiActiveWorkers">0</div>
+          </div>
+
+          <div class="card">
+            <div class="label">Recycling Rate</div>
+            <div class="value" id="kpiRecyclingRate">0%</div>
+          </div>
+
+          <div class="card">
+            <div class="label">Collection Efficiency</div>
+            <div class="value" id="kpiCollectionEfficiency">0%</div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="card" style="margin-top:14px;">
-      <div class="label">Trips Completed</div>
-      <div class="value" id="kpiTripsCompleted">0</div>
-    </div>
+      <!-- CHARTS -->
+      <div class="card" style="margin-top:14px;">
+        <h2>Visual Statistics</h2>
+        <p class="sub">
+          Graphs are generated dynamically from the database using Tamil Nadu district records.
+        </p>
+      </div>
 
-    <div class="card" style="margin-top:14px;">
-      <h2>Quick Tips</h2>
-      <p class="sub">
-        Add collection entries daily, update bin status, then record recycling.
-        Reports update automatically.
-      </p>
-    </div>
+      <div class="grid charts-grid" style="margin-top:14px;">
+        <div class="card chart-card">
+          <h3>Waste Collection by District</h3>
+          <p class="sub">Fetched dynamically from collection records across TN districts.</p>
+          <div class="chart-wrap">
+            <canvas id="districtCollectionChart"></canvas>
+          </div>
+        </div>
 
-  </main>
-</div>
+        <div class="card chart-card">
+          <h3>Waste Category Distribution</h3>
+          <p class="sub">Fetched dynamically from recycling records.</p>
+          <div class="chart-wrap">
+            <canvas id="wasteCategoryChart"></canvas>
+          </div>
+        </div>
 
-<div class="toast" id="toast"></div>
+        <div class="card chart-card">
+          <h3>Complaints Status</h3>
+          <p class="sub">Pending vs resolved complaints from database.</p>
+          <div class="chart-wrap">
+            <canvas id="complaintsChart"></canvas>
+          </div>
+        </div>
 
-<script type="module" src="./js/app.js"></script>
-<script type="module" src="./js/dashboard.js"></script>
+        <div class="card chart-card">
+          <h3>Monthly Trend Analysis</h3>
+          <p class="sub">Monthly collection and recycling trend fetched from DB.</p>
+          <div class="chart-wrap">
+            <canvas id="monthlyTrendChart"></canvas>
+          </div>
+        </div>
+
+        <div class="card chart-card">
+          <h3>Revenue Trend Analysis</h3>
+          <p class="sub">Monthly revenue generated fetched dynamically from finance records.</p>
+          <div class="chart-wrap">
+            <canvas id="revenueTrendChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- DYNAMIC BREAKDOWN LISTS -->
+      <div class="grid" style="margin-top:14px;">
+        <div class="card">
+          <h2>Waste Category Analysis</h2>
+          <p class="sub">Live category-wise distribution from DB.</p>
+          <div class="stats-list" id="wasteCategoryList">
+            <div class="stats-row">
+              <span>No category data available</span>
+              <strong>0 kg</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>District Performance</h2>
+          <p class="sub">Live collection totals grouped by district from DB.</p>
+          <div class="stats-list" id="districtPerformanceList">
+            <div class="stats-row">
+              <span>No district data available</span>
+              <strong>0 kg</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MONTHLY SUMMARY -->
+      <div class="card" style="margin-top:14px;">
+        <h2>Monthly Summary</h2>
+        <p class="sub">Current month statistical overview based on database entries.</p>
+
+        <div class="grid" style="margin-top:14px;">
+          <div class="card">
+            <div class="label">This Month Collection</div>
+            <div class="value" id="monthCollection">0 kg</div>
+          </div>
+
+          <div class="card">
+            <div class="label">This Month Recycling</div>
+            <div class="value" id="monthRecycling">0 kg</div>
+          </div>
+
+          <div class="card">
+            <div class="label">This Month Complaints</div>
+            <div class="value" id="monthComplaints">0</div>
+          </div>
+
+          <div class="card">
+            <div class="label">Revenue Generated</div>
+            <div class="value" id="monthRevenue">₹0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MONTHLY TREND TABLE -->
+      <div class="card" style="margin-top:14px;">
+        <h2>Monthly Trend Table</h2>
+        <p class="sub">Detailed month-wise statistics generated dynamically from DB.</p>
+
+        <div class="table-responsive">
+          <table class="trend-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Collection (kg)</th>
+                <th>Recycling (kg)</th>
+                <th>Complaints</th>
+                <th>Revenue (₹)</th>
+              </tr>
+            </thead>
+            <tbody id="monthlyTrendTableBody">
+              <tr>
+                <td colspan="5" class="empty-cell">No monthly trend data available</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h2>Quick Tips</h2>
+        <p class="sub">
+          Add collection entries daily, update bin status, record recycling on time, and maintain finance entries properly.
+          Reports and statistics will update automatically based on DB data.
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="./js/app.js"></script>
+  <script type="module" src="./js/dashboard.js"></script>
 </body>
 </html>
